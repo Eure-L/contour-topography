@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=42", "wheel==0.45.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "AusMap"
+version = "0.1.0"
+authors = [
+    { name = "Eure-L", email = "eurel.vj@gmail.com" }
+]
+description = "Logiciel facilitant le vote dématerialisé."
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+keywords = ["python"]
+license = { text = "MIT" }
+readme = "README.md"
+
+requires-python = "~=3.12"
+
+
+[tool.setuptools.package-data]
+"*" = ["*.txt", "*.rst"]
+"your_package_name" = ["data/*.dat"]
+
+[project.optional-dependencies]
+dev = ["pytest", "black", "flake8"]
+
+[project.scripts]
+
+[tool.black]
+line-length = 88
+
+[tool.setuptools]
