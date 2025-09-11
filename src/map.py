@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 from osgeo import gdal
 from osgeo.gdal import Dataset
+import svgutils.transform as st
 
 from src.colormapping import altitudes_to_rgb_array, altitude_to_rgb
 
@@ -16,7 +17,7 @@ def pixel2coord(gt, px, py):
     return (x, y)
 
 
-def save_contours_as_svg(contours, width, height, filename, color="black"):
+def save_contours_as_svg(contours, width, height, filename, fill: bool, color="black"):
     """Save contours as SVG."""
     with open(filename, 'w') as f:
         f.write(f'<svg xmlns="http://www.w3.org/2000/svg" '
@@ -24,7 +25,8 @@ def save_contours_as_svg(contours, width, height, filename, color="black"):
         for contour in contours:
             path_data = "M " + " L ".join(f"{int(x)},{int(y)}" for x, y in contour[:, 0, :])
             path_data += " Z"
-            f.write(f'  <path d="{path_data}" stroke="{color}" fill="{color}" stroke-width="1"/>\n')
+            fill_str = f'fill="{color}"' if fill else f'fill="none"'
+            f.write(f'  <path d="{path_data}" stroke="{color}" {fill_str} stroke-width="1"/>\n')
         f.write('</svg>')
 
 
@@ -71,7 +73,7 @@ class Map:
 
     _grayscale_picture: np.ndarray = None
     _color_picture: np.ndarray = None
-    _layers = None
+    _layers: Dict = None
     _width: int = None
     _height: int = None
     _file: str = None
@@ -82,7 +84,7 @@ class Map:
 
     def __init__(self, tif_file: str, name: str = None):
         self._file = tif_file
-        self._layers = []
+        self._layers = {}
 
         if name is not None:
             self._name = name
@@ -94,9 +96,88 @@ class Map:
         img = Image.fromarray(self.color_picture, mode='RGB')
         img.show(self.name)
 
-    def draw_layer(self, level_range: Tuple[Union[float, int]], save_path: str = None,
-                   color: bool = None) -> Union[
-        str, None]:
+    def _save_layer_svg(self, contour, layer_range, save_file: str, color, for_cut: bool):
+        """
+
+        :param save_file:
+        :param color:
+        :param combined:
+        :return:
+        """
+        height, width = self.grayscale_picture.shape
+
+        if not for_cut and color:
+            min_alt = self.grayscale_picture.min()
+            max_alt = self.grayscale_picture.max()
+            r, g, b = altitude_to_rgb(layer_range[0], min_alt, max_alt)
+            svg_color = f"rgb({r},{g},{b})"
+            save_contours_as_svg(contour, width, height, save_file, color=svg_color, fill=not for_cut)
+        else:
+            save_contours_as_svg(contour, width, height, save_file, color="black", fill=not for_cut)
+
+    def _save_layer_png(self, contour, layer_range, save_file: str, color):
+        """
+
+        :param save_path:
+        :param color:
+        :param combined:
+        :return:
+        """
+        height, width = self.grayscale_picture.shape
+
+        if color:
+            color_img = np.zeros((height, width, 4), dtype=np.uint8)
+            min_alt = self.grayscale_picture.min()
+            max_alt = self.grayscale_picture.max()
+            r, g, b = altitude_to_rgb(layer_range[0], min_alt, max_alt)
+            color_bgr = (int(b), int(g), int(r), 255)
+            cv2.drawContours(color_img, contour, -1, color_bgr, 1)
+            cv2.imwrite(save_file, color_img)
+
+        else:
+            mask = np.zeros((height, width, 4), dtype=np.uint8)
+            cv2.drawContours(mask, contour, -1, (0, 0, 0, 255), 1)
+            cv2.imwrite(save_file, contour)
+
+    def save_layers(self, save_path: str, mode: str, color: bool, combined: bool, for_cut: bool = False):
+        """
+
+        :param for_cut:
+        :param save_path:
+        :param color:
+        :param combined:
+        :return:
+        """
+
+        ALLOWED_EXT = ['png', 'svg']
+
+        if mode not in ALLOWED_EXT:
+            raise ValueError(f"Extension {mode} is not handled. Only {str(ALLOWED_EXT)}")
+
+        saved_layers = []
+        for (start, top), contour in self._layers.items():
+            file = os.path.join(save_path, f"{self.name}_{start}-{top}.{mode}")
+            saved_layers.append(file)
+
+            if mode == 'svg':
+                self._save_layer_svg(contour, (start, top), file, color, for_cut)
+
+            if mode == 'png':
+                self._save_layer_png(contour, (start, top), file, color)
+
+        if combined and mode == 'svg':
+
+            first_layer = saved_layers[0]
+            first_svg = st.fromfile(first_layer)
+            for next_layer in saved_layers[1:]:
+                next_svg = st.fromfile(next_layer)
+                first_svg.append(next_svg)
+            first_svg.save(os.path.join(save_path, self.name + '.svg'))
+
+        if combined and mode == 'png':
+            pass
+
+    def compute_layer(self, level_range: Tuple[Union[float, int]]):
         """
         Draws the contour of the file
         :param level:
@@ -106,54 +187,10 @@ class Map:
 
         mask = np.zeros_like(self.grayscale_picture, dtype=np.uint8)
         mask[(self.grayscale_picture >= level_range[0]) & (self.grayscale_picture < level_range[1])] = 255
-
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        height, width = self.grayscale_picture.shape
+        self._layers[level_range] = contours
 
-        if save_path is not None:
-            png_file = os.path.join(save_path, f"{self.name}_{level_range[0]}-{level_range[1]}.png")
-            svg_file = os.path.join(save_path, f"{self.name}_{level_range[0]}-{level_range[1]}.svg")
-            print(f"Saving {png_file}")
-            print(f"Saving {svg_file}")
-
-        # Color
-        if color is not None:
-            color_img = np.zeros((height, width, 3), dtype=np.uint8)
-            min_alt = self.grayscale_picture.min()
-            max_alt = self.grayscale_picture.max()
-            r, g, b = altitude_to_rgb(level_range[0], min_alt, max_alt)
-            color_bgr = (int(b), int(g), int(r))
-            cv2.drawContours(color_img, contours, -1, color_bgr, 1)
-            svg_color = f"rgb({r},{g},{b})"
-
-            # Save to file
-            if save_path is None:
-                img = Image.fromarray(color_img, mode='RGB')
-                img.show(self.name)
-                return None
-
-            # Display
-            else:
-                cv2.imwrite(png_file, color_img)
-                save_contours_as_svg(contours, width, height, svg_file, color=svg_color)
-                return svg_file
-
-        # Grey scale
-        else:
-
-            # Save to file
-            if save_path is None:
-                img = Image.fromarray(mask, mode='L')
-                img.show(self.name)
-                return None
-
-            # Display
-            else:
-                cv2.imwrite(png_file, mask)
-                save_contours_as_svg(contours, width, height, svg_file, color="black")
-                return svg_file
-
-    def draw_all_layers(self, level_step: Union[int, float], save_path: str = None, color=True) -> Union[str, None]:
+    def compute_all_layers(self, level_step: Union[int, float]) -> Union[str, None]:
         """
         Draws all the
         :param level_step:
@@ -161,14 +198,14 @@ class Map:
         :return:
         """
 
+        self._layers = {}
+
         min_val = int(self.grayscale_picture.min())
         max_val = int(self.grayscale_picture.max())
 
         for level in range(min_val, max_val, level_step):
             print(f"Processing Level {level}m")
-            ret = self.draw_layer((level, level + level_step), save_path, color)
-            if ret is not None:
-                self._layers.append(ret)
+            self.compute_layer((level, level + level_step))
 
     @property
     def name(self):
