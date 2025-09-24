@@ -1,14 +1,22 @@
+import json
 import os
 from xml.etree import ElementTree as ET
-from typing import Dict, Tuple, Union
+from typing import Dict, Tuple, Union, List
 from PIL import Image
 import cv2
 import numpy as np
 from osgeo import gdal
 from osgeo.gdal import Dataset
 import svgutils.transform as st
+from shapely import vectorized
+from shapely.geometry.multipolygon import MultiPolygon
 
-from src.colormapping import altitudes_to_rgb_array, altitude_to_rgb
+from src.utils.colormapping import altitudes_to_rgb_array, altitude_to_rgb
+from shapely.geometry import shape, Point
+import logging
+
+logger = logging.getLogger('map')
+logger.setLevel(logging.DEBUG)
 
 
 def pixel2coord(gt, px, py):
@@ -66,23 +74,45 @@ def merge_svgs(svg_files, output_file, width=None, height=None):
     print(f"Merged SVG saved to {output_file}")
 
 
+def point_in_border(point: Point, borders: List[shape]):
+    """
+    Checks wether a point is inside a list of borders.
+    :param point:
+    :param borders:
+    :return:
+    """
+    for border in borders:
+        if border.contains(point):
+            return True
+    return False
+
+
 class Map:
     """
     Interfaces TIF Image file
     """
 
     _grayscale_picture: np.ndarray = None
+    _border_mask: np.ndarray = None
     _color_picture: np.ndarray = None
     _layers: Dict = None
     _width: int = None
     _height: int = None
     _file: str = None
+    _borders_geojson: str = None
+    _borders_polygons: List = None
     _ds: Dataset = None
     _corners: Dict = None
     _bounding_box: Dict = None
     _name: str = None
 
-    def __init__(self, tif_file: str, name: str = None):
+    def __init__(self, tif_file: str, borders_geojson: str = None, name: str = None):
+        """
+
+        :param tif_file:            Tif file storing grayscale values
+        :param borders_geojson:     optionnal Geojson describing all the borders of the given Map
+        :param name:                Optionnal, Sets the name of the map for file saving
+        """
         self._file = tif_file
         self._layers = {}
 
@@ -92,16 +122,21 @@ class Map:
             name = os.path.split(tif_file)[1]
             self._name = ''.join(name.split('.')[:-1])
 
+        if borders_geojson is not None:
+            self._borders_geojson = borders_geojson
+
     def show_colour_picture(self):
         img = Image.fromarray(self.color_picture, mode='RGB')
         img.show(self.name)
 
-    def _save_layer_svg(self, contour, layer_range, save_file: str, color, for_cut: bool):
+    def _save_layer_svg(self, contour, layer_range: Tuple[Union[int, float], Union[int, float]], save_file: str, color,
+                        for_cut: bool):
         """
+        Saves a given layer altitude range as SVG
 
-        :param save_file:
+        :param save_file: dst save file
         :param color:
-        :param combined:
+        :param for_cut:
         :return:
         """
         height, width = self.grayscale_picture.shape
@@ -115,86 +150,90 @@ class Map:
         else:
             save_contours_as_svg(contour, width, height, save_file, color="black", fill=not for_cut)
 
-    def _save_layer_png(self, contour, layer_range, save_file: str, color):
+    def save_layers(self, save_path: str, color: bool, combined: bool, for_cut: bool = False):
         """
+        Saves all computed layers to SVGs or a single SVG.
 
-        :param save_path:
-        :param color:
-        :param combined:
+        :param for_cut:     Wether its for CNC cutting
+        :param save_path:   Dst path
+        :param color:       Wether to draw the colors according to the altitude
+        :param combined:    Wether to combine them all SVGs
         :return:
         """
-        height, width = self.grayscale_picture.shape
-
-        if color:
-            color_img = np.zeros((height, width, 4), dtype=np.uint8)
-            min_alt = self.grayscale_picture.min()
-            max_alt = self.grayscale_picture.max()
-            r, g, b = altitude_to_rgb(layer_range[0], min_alt, max_alt)
-            color_bgr = (int(b), int(g), int(r), 255)
-            cv2.drawContours(color_img, contour, -1, color_bgr, 1)
-            cv2.imwrite(save_file, color_img)
-
-        else:
-            mask = np.zeros((height, width, 4), dtype=np.uint8)
-            cv2.drawContours(mask, contour, -1, (0, 0, 0, 255), 1)
-            cv2.imwrite(save_file, contour)
-
-    def save_layers(self, save_path: str, mode: str, color: bool, combined: bool, for_cut: bool = False):
-        """
-
-        :param for_cut:
-        :param save_path:
-        :param color:
-        :param combined:
-        :return:
-        """
-
-        ALLOWED_EXT = ['png', 'svg']
-
-        if mode not in ALLOWED_EXT:
-            raise ValueError(f"Extension {mode} is not handled. Only {str(ALLOWED_EXT)}")
 
         saved_layers = []
         for (start, top), contour in self._layers.items():
-            file = os.path.join(save_path, f"{self.name}_{start}-{top}.{mode}")
+            start, top = int(start), int(top)
+            file = os.path.join(save_path, f"{self.name}_{start}-{top}.svg")
             saved_layers.append(file)
 
-            if mode == 'svg':
-                self._save_layer_svg(contour, (start, top), file, color, for_cut)
+            self._save_layer_svg(contour, (start, top), file, color, for_cut)
 
-            if mode == 'png':
-                self._save_layer_png(contour, (start, top), file, color)
-
-        if combined and mode == 'svg':
-
+        if combined:
             first_layer = saved_layers[0]
             first_svg = st.fromfile(first_layer)
             for next_layer in saved_layers[1:]:
                 next_svg = st.fromfile(next_layer)
                 first_svg.append(next_svg)
-            first_svg.save(os.path.join(save_path, self.name + '.svg'))
 
-        if combined and mode == 'png':
-            pass
+            output_file = os.path.join(save_path, self.name + '.svg')
+            logger.log(logging.INFO, f"Combined layer => {output_file}")
+            first_svg.save(output_file)
 
-    def compute_layer(self, level_range: Tuple[Union[float, int]]):
+    def get_border_mask(self):
         """
-        Draws the contour of the file
-        :param level:
-        :param save:
+        Create a mask where pixels inside any of the given borders are 1, otherwise 0.
+        Vectorized implementation using shapely.vectorized.contains.
+        """
+
+        height, width = self.grayscale_picture.shape
+        gt = self.ds.GetGeoTransform()
+
+        x = np.arange(width)
+        y = np.arange(height)
+        xx, yy = np.meshgrid(x, y)
+
+        lon = gt[0] + xx * gt[1] + yy * gt[2]
+        lat = gt[3] + xx * gt[4] + yy * gt[5]
+
+        # Combine all borders into one multipolygon
+        if not self.borders_polygons:
+            return np.ones((height, width), dtype=np.uint8)
+
+        multipoly = MultiPolygon(self.borders_polygons)
+
+        # Vectorized containment check
+        mask = vectorized.contains(multipoly, lon, lat)
+
+        return mask.astype(np.uint8) * 255
+
+    def compute_layer(self, level_range: Tuple[Union[float, int], Union[float, int]]):
+        """
+        Draws the contour of for a given elevation range.
+        If a border is given for the map, draws the inside of the border
+
+        :param level_range:
         :return:
         """
-
         mask = np.zeros_like(self.grayscale_picture, dtype=np.uint8)
-        mask[(self.grayscale_picture >= level_range[0]) & (self.grayscale_picture < level_range[1])] = 255
+
+        if len(self.borders_polygons) == 0:
+            mask[(self.grayscale_picture >= level_range[0]) &
+                 (self.grayscale_picture < level_range[1])] = 255
+        else:
+            mask[(self.grayscale_picture >= level_range[0]) &
+                 (self.grayscale_picture < level_range[1])] = 255
+            mask[ self.border_mask != 255] = 0
+
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         self._layers[level_range] = contours
 
-    def compute_all_layers(self, level_step: Union[int, float]) -> Union[str, None]:
+
+    def compute_all_layers(self, level_step: Union[int, float]):
         """
-        Draws all the
+        Draws all the contour layers at different altitude levels
+
         :param level_step:
-        :param save_path:
         :return:
         """
 
@@ -210,6 +249,28 @@ class Map:
     @property
     def name(self):
         return self._name
+
+    @property
+    def border_mask(self):
+        if self._border_mask is None:
+            self._border_mask = self.get_border_mask()
+        return self._border_mask
+
+    @property
+    def borders_polygons(self):
+        if self._borders_polygons is None:
+
+            self._borders_polygons = []
+
+            if self._borders_geojson is None:
+                return self._borders_polygons
+
+            with open(self._borders_geojson, 'r') as f:
+                geojson = json.load(f)
+            for feature in geojson['features']:
+                self._borders_polygons.append(shape(feature['geometry']))
+
+        return self._borders_polygons
 
     @property
     def width(self):
@@ -263,7 +324,8 @@ class Map:
                 "west_longitude": self.corners["upper_left"][0],
                 "east_longitude": self.corners["upper_right"][0],
             }
-        return
+
+        return self._bounding_box
 
     @property
     def north_latitude(self):
