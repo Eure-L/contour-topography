@@ -16,8 +16,8 @@ def altitude_to_rgb(altitude, min_alt, max_alt):
     stops = [
         (1.0, np.array([255, 255, 255])),  # white (highest)
         (0.6, np.array([139, 69, 19])),  # brown
-        (0.3, np.array([0, 255, 0])),  # green
-        (0.0, np.array([0, 0, 255])),  # blue (lowest)
+        (0.2, np.array([0, 255, 0])),  # green
+        (0.0, np.array([0, 100, 255])),  # blue (lowest)
     ]
 
     for i in range(len(stops) - 1):

@@ -223,28 +223,33 @@ class Map:
         else:
             mask[(self.grayscale_picture >= level_range[0]) &
                  (self.grayscale_picture < level_range[1])] = 255
-            mask[ self.border_mask != 255] = 0
+            mask[self.border_mask != 255] = 0
 
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        # Filter out contours with fewer than 20 points
+        contours = [cnt for cnt in contours if len(cnt) >= 20]
+
         self._layers[level_range] = contours
 
-
-    def compute_all_layers(self, level_step: Union[int, float]):
+    def compute_all_layers(self, for_cut=False, level_steps: List[int] = None):
         """
         Draws all the contour layers at different altitude levels
 
-        :param level_step:
+        :param for_cut:
+        :param level_steps:
         :return:
         """
 
         self._layers = {}
 
-        min_val = int(self.grayscale_picture.min())
-        max_val = int(self.grayscale_picture.max())
+        for idx, _ in enumerate(level_steps):
+            if idx == len(level_steps) - 1:
+                break
 
-        for level in range(min_val, max_val, level_step):
-            print(f"Processing Level {level}m")
-            self.compute_layer((level, level + level_step))
+            print(f"Processing Level {level_steps[idx]}m")
+            level_range = (0 if for_cut else level_steps[idx-1], level_steps[idx])
+            self.compute_layer(level_range)
 
     @property
     def name(self):

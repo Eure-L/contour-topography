@@ -20,6 +20,17 @@ readme = "README.md"
 
 requires-python = "~=3.12"
 
+dependencies = [
+    "GDAL==3.11.3",
+    "pillow==11.3.0",
+    "numpy==2.2.6",
+    "opencv-python==4.12.0.88",
+    "gdal==3.11.3",
+    "plotly==6.3.0",
+    "svgutils==0.3.4",
+    "shapely==2.1.2",
+]
+
 
 [tool.setuptools.package-data]
 "*" = ["*.txt", "*.rst"]
@@ -29,6 +40,7 @@ requires-python = "~=3.12"
 dev = ["pytest", "black", "flake8"]
 
 [project.scripts]
+draw_contours = "main:main"
 
 [tool.black]
 line-length = 88
