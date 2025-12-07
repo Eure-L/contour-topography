@@ -1,6 +1,23 @@
 import numpy as np
 
 
+def altitude_to_gray(altitude, min_alt, max_alt):
+    """
+    Map a single altitude value to a grayscale level using linear interpolation.
+
+    :param altitude: float, the altitude value
+    :param min_alt: minimum altitude for normalization
+    :param max_alt: maximum altitude for normalization
+    :return: single grayscale value (0–255)
+    """
+    # Normalize to [0,1]
+    t = np.clip((altitude - min_alt) / (max_alt - min_alt), 0, 1)
+
+    # Interpolate from black (0) to white (255)
+    gray = int(255 * t)
+    return gray
+
+
 def altitude_to_rgb(altitude, min_alt, max_alt):
     """
     Map a single altitude value to an RGB color using linear interpolation.

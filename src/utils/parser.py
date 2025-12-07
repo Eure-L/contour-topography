@@ -26,6 +26,14 @@ def argv_parser():
     )
 
     parser.add_argument(
+        '-r', '--roads-geojson',
+        type=str,
+        default=None,
+        help='Path to the GeoJSON file containing roads data',
+        required=False
+    )
+
+    parser.add_argument(
         '-o', '--output-dir',
         type=str,
         default=defaults.out_dir,

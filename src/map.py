@@ -15,6 +15,8 @@ from src.utils.colormapping import altitudes_to_rgb_array, altitude_to_rgb
 from shapely.geometry import shape, Point
 import logging
 
+from utils.colormapping import altitude_to_gray
+
 logger = logging.getLogger('map')
 logger.setLevel(logging.DEBUG)
 
@@ -25,7 +27,7 @@ def pixel2coord(gt, px, py):
     return (x, y)
 
 
-def save_contours_as_svg(contours, width, height, filename, fill: bool, color="black"):
+def save_map_as_svgs(contours, width, height, filename, fill: bool, color="black"):
     """Save contours as SVG."""
     with open(filename, 'w') as f:
         f.write(f'<svg xmlns="http://www.w3.org/2000/svg" '
@@ -100,13 +102,15 @@ class Map:
     _height: int = None
     _file: str = None
     _borders_geojson: str = None
+    _roads_geojson: str = None
     _borders_polygons: List = None
+    _roads: List = None
     _ds: Dataset = None
     _corners: Dict = None
     _bounding_box: Dict = None
     _name: str = None
 
-    def __init__(self, tif_file: str, borders_geojson: str = None, name: str = None):
+    def __init__(self, tif_file: str, borders_geojson: str = None, roads_geojson: str = None, name: str = None):
         """
 
         :param tif_file:            Tif file storing grayscale values
@@ -125,6 +129,9 @@ class Map:
         if borders_geojson is not None:
             self._borders_geojson = borders_geojson
 
+        if roads_geojson is not None:
+            self._roads_geojson = roads_geojson
+
     def show_colour_picture(self):
         img = Image.fromarray(self.color_picture, mode='RGB')
         img.show(self.name)
@@ -140,15 +147,17 @@ class Map:
         :return:
         """
         height, width = self.grayscale_picture.shape
+        min_alt = self.grayscale_picture.min()
+        max_alt = self.grayscale_picture.max()
 
-        if not for_cut and color:
-            min_alt = self.grayscale_picture.min()
-            max_alt = self.grayscale_picture.max()
+        if not for_cut:
             r, g, b = altitude_to_rgb(layer_range[0], min_alt, max_alt)
             svg_color = f"rgb({r},{g},{b})"
-            save_contours_as_svg(contour, width, height, save_file, color=svg_color, fill=not for_cut)
+            save_map_as_svgs(contour, width, height, save_file, color=svg_color, fill=True)
         else:
-            save_contours_as_svg(contour, width, height, save_file, color="black", fill=not for_cut)
+            gray = 255 - altitude_to_gray(layer_range[0], min_alt, max_alt)
+            svg_color = f"rgb({gray},{gray},{gray})"
+            save_map_as_svgs(contour, width, height, save_file, color=svg_color, fill=True)
 
     def save_layers(self, save_path: str, color: bool, combined: bool, for_cut: bool = False):
         """
@@ -232,7 +241,7 @@ class Map:
 
         self._layers[level_range] = contours
 
-    def compute_all_layers(self, for_cut=False, level_steps: List[int] = None):
+    def compute_all_layers(self, for_cut: bool, level_steps: List[int]):
         """
         Draws all the contour layers at different altitude levels
 
@@ -248,7 +257,7 @@ class Map:
                 break
 
             print(f"Processing Level {level_steps[idx]}m")
-            level_range = (0 if for_cut else level_steps[idx-1], level_steps[idx])
+            level_range = (level_steps[idx - 1], level_steps[-1])
             self.compute_layer(level_range)
 
     @property
@@ -276,6 +285,19 @@ class Map:
                 self._borders_polygons.append(shape(feature['geometry']))
 
         return self._borders_polygons
+
+    @property
+    def roads(self):
+        if self._roads is None:
+            self._roads = []
+            if self._roads_geojson is None:
+                return self._roads
+
+            with open(self._roads_geojson, 'r') as f:
+                geojson = json.load(f)
+            self._roads = geojson['features']
+
+        return self._roads
 
     @property
     def width(self):
