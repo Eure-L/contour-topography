@@ -8,6 +8,7 @@ import numpy as np
 from osgeo import gdal
 from osgeo.gdal import Dataset
 import svgutils.transform as st
+from osgeo.ogr import GeomTransformer
 from shapely import vectorized
 from shapely.geometry.multipolygon import MultiPolygon
 
@@ -97,7 +98,8 @@ class Map:
     _grayscale_picture: np.ndarray = None
     _border_mask: np.ndarray = None
     _color_picture: np.ndarray = None
-    _layers: Dict = None
+    _base_layers: Dict = None
+    _road_layers: Dict = None
     _width: int = None
     _height: int = None
     _file: str = None
@@ -106,6 +108,7 @@ class Map:
     _borders_polygons: List = None
     _roads: List = None
     _ds: Dataset = None
+    _gt: GeomTransformer = None
     _corners: Dict = None
     _bounding_box: Dict = None
     _name: str = None
@@ -118,7 +121,7 @@ class Map:
         :param name:                Optionnal, Sets the name of the map for file saving
         """
         self._file = tif_file
-        self._layers = {}
+        self._base_layers = {}
 
         if name is not None:
             self._name = name
@@ -159,6 +162,22 @@ class Map:
             svg_color = f"rgb({gray},{gray},{gray})"
             save_map_as_svgs(contour, width, height, save_file, color=svg_color, fill=True)
 
+    def _append_roads_to_svg(self, svg_file, road_paths):
+        """
+        Append road SVG <path> elements to an existing SVG file.
+        """
+
+        tree = ET.parse(svg_file)
+        root = tree.getroot()
+
+        # Add a <g id="roads"> group
+        g = ET.SubElement(root, "g", id="roads", stroke="black", fill="none", **{"stroke-width": "1"})
+
+        for d in road_paths:
+            ET.SubElement(g, "path", d=d)
+
+        tree.write(svg_file, encoding="utf-8", xml_declaration=True)
+
     def save_layers(self, save_path: str, color: bool, combined: bool, for_cut: bool = False):
         """
         Saves all computed layers to SVGs or a single SVG.
@@ -171,12 +190,16 @@ class Map:
         """
 
         saved_layers = []
-        for (start, top), contour in self._layers.items():
+        for level_range, contour in self._base_layers.items():
+            start, top = level_range
             start, top = int(start), int(top)
             file = os.path.join(save_path, f"{self.name}_{start}-{top}.svg")
             saved_layers.append(file)
 
             self._save_layer_svg(contour, (start, top), file, color, for_cut)
+
+            if level_range in self._road_layers:
+                self._append_roads_to_svg(file, self._road_layers[level_range])
 
         if combined:
             first_layer = saved_layers[0]
@@ -216,7 +239,79 @@ class Map:
 
         return mask.astype(np.uint8) * 255
 
-    def compute_layer(self, level_range: Tuple[Union[float, int], Union[float, int]]):
+    def geo_to_pixel(self, lon, lat):
+        """
+        Convert geographic coordinates (lon, lat) to pixel coordinates (px, py)
+        using the map geotransform.
+        """
+        gt = self.gt
+        inv_det = 1 / (gt[1] * gt[5] - gt[2] * gt[4])
+
+        px = int((gt[5] * (lon - gt[0]) - gt[2] * (lat - gt[3])) * inv_det)
+        py = int((-gt[4] * (lon - gt[0]) + gt[1] * (lat - gt[3])) * inv_det)
+
+        return px, py
+
+    def road_to_svg_paths(self, feature):
+        """
+        Convert a GeoJSON road feature to one or more SVG <path> strings.
+        Handles LineString and MultiLineString.
+        """
+
+        geom = shape(feature["geometry"])
+        paths = []
+
+        try:
+            if geom.geom_type == "LineString":
+                lines = [geom]
+            elif geom.geom_type == "MultiLineString":
+                lines = list(geom)
+            else:
+                return paths
+        except Exception as e:
+            return paths
+
+        for line in lines:
+            path_parts = []
+            for lon, lat in line.coords:
+                px, py = self.geo_to_pixel(lon, lat)
+
+                if px < -10 or py < -10 or px > self.width + 10 or py > self.height + 10:
+                    continue
+
+                path_parts.append(f"{px},{py}")
+
+            if len(path_parts) > 1:
+                d = "M " + " L ".join(path_parts)
+                paths.append(d)
+
+        return paths
+
+    def compute_road_layers(self):
+        """
+        Generates SVG path data for all roads for each layer.
+        Saves results into self._road_layers[level_range] = [svg_path_strings]
+        """
+
+        self._road_layers = {}
+
+        for level_range, base_contours in self._base_layers.items():
+            if not base_contours:
+                continue
+
+            svg_paths = []
+
+            for feature in self.roads:
+                hierarchy = int(feature['properties']['HIERARCHY_ID'],16)
+                if hierarchy > 0x8B:
+                    continue
+                paths = self.road_to_svg_paths(feature)
+                for d in paths:
+                    svg_paths.append(d)
+
+            self._road_layers[level_range] = svg_paths
+
+    def compute_base_layer(self, level_range: Tuple[Union[float, int], Union[float, int]]):
         """
         Draws the contour of for a given elevation range.
         If a border is given for the map, draws the inside of the border
@@ -239,18 +334,18 @@ class Map:
         # Filter out contours with fewer than 20 points
         contours = [cnt for cnt in contours if len(cnt) >= 20]
 
-        self._layers[level_range] = contours
+        self._base_layers[level_range] = contours
 
-    def compute_all_layers(self, for_cut: bool, level_steps: List[int]):
+    def compute_all_layers(self, level_steps: List[int]):
         """
         Draws all the contour layers at different altitude levels
 
-        :param for_cut:
         :param level_steps:
         :return:
         """
 
-        self._layers = {}
+        self._base_layers = {}
+        self._road_layers = {}
 
         for idx, _ in enumerate(level_steps):
             if idx == len(level_steps) - 1:
@@ -258,7 +353,9 @@ class Map:
 
             print(f"Processing Level {level_steps[idx]}m")
             level_range = (level_steps[idx - 1], level_steps[-1])
-            self.compute_layer(level_range)
+            self.compute_base_layer(level_range)
+
+        self.compute_road_layers()
 
     @property
     def name(self):
@@ -304,14 +401,14 @@ class Map:
         if self._width is None:
             _, width = self.grayscale_picture.shape
             self._width = width
-        return self.width
+        return self._width
 
     @property
     def height(self):
         if self._height is None:
             _, height = self.grayscale_picture.shape
             self._height = height
-        return self.height
+        return self._height
 
     @property
     def grayscale_picture(self) -> np.ndarray:
@@ -335,6 +432,12 @@ class Map:
             self._ds = gdal.Open(self.file, gdal.GA_ReadOnly)
 
         return self._ds
+
+    @property
+    def gt(self):
+        if self._gt is None:
+            self._gt = self.ds.GetGeoTransform()
+        return self._gt
 
     @property
     def corners(self) -> Dict[str, Tuple[float]]:
@@ -372,17 +475,16 @@ class Map:
 
     def _get_corners(self):
         """Return the geographic coordinates of the 4 corners and center."""
-        gt = self.ds.GetGeoTransform()
         xsize = self.ds.RasterXSize
         ysize = self.ds.RasterYSize
 
         # Pixel to geo coordinates
         corners = {
-            "upper_left": pixel2coord(gt, 0, 0),
-            "upper_right": pixel2coord(gt, xsize, 0),
-            "lower_left": pixel2coord(gt, 0, ysize),
-            "lower_right": pixel2coord(gt, xsize, ysize),
-            "center": pixel2coord(gt, xsize // 2, ysize // 2)
+            "upper_left": pixel2coord(self.gt, 0, 0),
+            "upper_right": pixel2coord(self.gt, xsize, 0),
+            "lower_left": pixel2coord(self.gt, 0, ysize),
+            "lower_right": pixel2coord(self.gt, xsize, ysize),
+            "center": pixel2coord(self.gt, xsize // 2, ysize // 2)
         }
 
         return corners
