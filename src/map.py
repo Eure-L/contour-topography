@@ -10,6 +10,7 @@ from osgeo.gdal import Dataset
 import svgutils.transform as st
 from osgeo.ogr import GeomTransformer
 from shapely import vectorized
+from shapely.geometry.linestring import LineString
 from shapely.geometry.multipolygon import MultiPolygon
 
 from src.utils.colormapping import altitudes_to_rgb_array, altitude_to_rgb
@@ -99,7 +100,8 @@ class Map:
     _border_mask: np.ndarray = None
     _color_picture: np.ndarray = None
     _base_layers: Dict = None
-    _road_layers: Dict = None
+    _road_layer: List = None
+    _base_road_layers: Dict[Tuple[int, int], List[str]] = None
     _width: int = None
     _height: int = None
     _file: str = None
@@ -139,6 +141,41 @@ class Map:
         img = Image.fromarray(self.color_picture, mode='RGB')
         img.show(self.name)
 
+    def elevation_at(self, lon, lat):
+        px, py = self.geo_to_pixel(lon, lat)
+        if 0 <= px < self.width and 0 <= py < self.height:
+            return float(self.grayscale_picture[py, px])
+        return None
+
+    def slice_line_by_elevation(self, line: LineString, level_range):
+        """
+        Returns a list of LineString segments from 'line' whose elevation lies inside level_range.
+        """
+
+        min_alt, max_alt = level_range
+        coords = list(line.coords)
+
+        valid_segments = []
+        current_segment = []
+
+        for (lon, lat) in coords:
+            elev = self.elevation_at(lon, lat)
+            inside = (elev is not None and min_alt <= elev < max_alt)
+
+            if inside:
+                current_segment.append((lon, lat))
+            else:
+                # End current segment if it exists
+                if len(current_segment) >= 2:
+                    valid_segments.append(LineString(current_segment))
+                current_segment = []
+
+        # Close last segment
+        if len(current_segment) >= 2:
+            valid_segments.append(LineString(current_segment))
+
+        return valid_segments
+
     def _save_layer_svg(self, contour, layer_range: Tuple[Union[int, float], Union[int, float]], save_file: str, color,
                         for_cut: bool):
         """
@@ -170,7 +207,7 @@ class Map:
                     f'width="{width}" height="{height}" viewBox="0 0 {width} {height}">\n')
 
             f.write('<g id="roads" stroke="black" fill="none" stroke-width="1">\n')
-            for d in self._road_layers:
+            for d in self._road_layer:
                 f.write(f'  <path d="{d}"/>\n')
             f.write('</g>\n</svg>')
 
@@ -202,6 +239,7 @@ class Map:
         """
 
         saved_layers = []
+
         for level_range, contour in self._base_layers.items():
             start, top = level_range
             start, top = int(start), int(top)
@@ -210,7 +248,14 @@ class Map:
 
             self._save_layer_svg(contour, (start, top), file, color, for_cut)
 
-        self.save_roads_svg(os.path.join(save_path, f"{self.name}_{start}-{top}_roads.svg"))
+            # Add vector roads for that specific layer
+            layer_roads = self._base_road_layers[level_range]
+            if layer_roads:
+                self._append_roads_to_svg(file, layer_roads)
+
+        road_svg = os.path.join(save_path, f"{self.name}_{start}-{top}_roads.svg")
+        self.save_roads_svg(road_svg)
+        saved_layers.append(road_svg)
 
         if combined:
             first_layer = saved_layers[0]
@@ -263,6 +308,13 @@ class Map:
 
         return px, py
 
+    def line_to_svg_path(self, line: LineString):
+        parts = []
+        for lon, lat in line.coords:
+            px, py = self.geo_to_pixel(lon, lat)
+            parts.append(f"{px},{py}")
+        return f"M {' L '.join(parts)}"
+
     def road_to_svg_paths(self, feature):
         """
         Convert a GeoJSON road feature to one or more SVG <path> strings.
@@ -300,18 +352,33 @@ class Map:
 
     def compute_road_layers(self):
         """
-        Generates SVG path data for all roads (fully vector)
+        Computes _base_road_layers: for each elevation layer, the list of SVG paths
+        for the road segments inside that layer.
         """
-        svg_paths = []
+
+        self._base_road_layers = {lr: [] for lr in self._base_layers.keys()}
 
         for feature in self.roads:
             hierarchy = int(feature['properties']['HIERARCHY_ID'], 16)
-            if hierarchy > 0x8B:
+            if hierarchy > 0x8A:
                 continue
 
-            svg_paths.extend(self.road_to_svg_paths(feature))
+            geom = shape(feature["geometry"])
 
-        self._road_layers = svg_paths
+            if geom.geom_type == "LineString":
+                lines = [geom]
+            elif geom.geom_type == "MultiLineString":
+                lines = list(geom.geoms)
+            else:
+                continue
+
+            # For each base layer, figure out which portion of the road belongs
+            for level_range in self._base_layers.keys():
+                for line in lines:
+                    segments = self.slice_line_by_elevation(line, level_range)
+                    for seg in segments:
+                        svg_path = self.line_to_svg_path(seg)
+                        self._base_road_layers[level_range].append(svg_path)
 
     def compute_base_layer(self, level_range: Tuple[Union[float, int], Union[float, int]]):
         """
@@ -347,7 +414,7 @@ class Map:
         """
 
         self._base_layers = {}
-        self._road_layers = {}
+        self._road_layer = {}
 
         for idx, _ in enumerate(level_steps):
             if idx == len(level_steps) - 1:
