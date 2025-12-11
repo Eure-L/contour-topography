@@ -164,7 +164,7 @@ class Map:
             return float(self.grayscale_picture[py, px])
         return None
 
-    def slice_line_by_elevation(self, line: LineString, level_range):
+    def line_in_elevation(self, line: LineString, level_range):
         """
         Returns a list of LineString segments from 'line' whose elevation lies inside level_range.
         """
@@ -172,26 +172,13 @@ class Map:
         min_alt, max_alt = level_range
         coords = list(line.coords)
 
-        valid_segments = []
-        current_segment = []
-
         for (lon, lat) in coords:
             elev = self.elevation_at(lon, lat)
             inside = (elev is not None and min_alt <= elev < max_alt)
-
             if inside:
-                current_segment.append((lon, lat))
-            else:
-                # End current segment if it exists
-                if len(current_segment) >= 2:
-                    valid_segments.append(LineString(current_segment))
-                current_segment = []
+                return True
 
-        # Close last segment
-        if len(current_segment) >= 2:
-            valid_segments.append(LineString(current_segment))
-
-        return valid_segments
+        return False
 
     def _save_layer_svg(self, contour, layer_range: Tuple[Union[int, float], Union[int, float]], save_file: str,
                         for_cut: bool):
@@ -199,7 +186,6 @@ class Map:
         Saves a given layer altitude range as SVG
 
         :param save_file: dst save file
-        :param color:
         :param for_cut:
         :return:
         """
@@ -234,7 +220,6 @@ class Map:
 
         :param for_cut:     Wether its for CNC cutting
         :param save_path:   Dst path
-        :param color:       Wether to draw the colors according to the altitude
         :param combined:    Wether to combine them all SVGs
         :return:
         """
@@ -254,7 +239,7 @@ class Map:
             if layer_roads:
                 _append_roads_to_svg(file, layer_roads)
 
-        road_svg = os.path.join(save_path, f"{self.name}_{start}-{top}_roads.svg")
+        road_svg = os.path.join(save_path, f"{self.name}_roads.svg")
         self.save_roads_svg(road_svg)
         saved_layers.append(road_svg)
 
@@ -328,10 +313,9 @@ class Map:
         if geom.geom_type == "LineString":
             lines = [geom]
         elif geom.geom_type == "MultiLineString":
-            lines = lines = list(geom.geoms)
+            lines = list(geom.geoms)
         else:
             return paths
-
 
         for line in lines:
             path_parts = []
@@ -356,50 +340,31 @@ class Map:
         """
 
         self._base_road_layers = {lr: [] for lr in self._base_layers.keys()}
+        level_ranges = list(self._base_layers.keys())
+        next_level_ranges = level_ranges[1:]
+        next_level_ranges.append(level_ranges[-1])
 
-        for feature in self.roads:
-            hierarchy = int(feature['properties']['HIERARCHY_ID'], 16)
-            if hierarchy > 0x8A:
-                continue
+        for idx, level_range in enumerate(level_ranges):
+            start, end = level_range
+            nex_start, nex_end = next_level_ranges[idx]
 
-            geom = shape(feature["geometry"])
+            for feature in self.roads:
 
-            if geom.geom_type == "LineString":
-                lines = [geom]
-            elif geom.geom_type == "MultiLineString":
-                lines = list(geom.geoms)
-            else:
-                continue
+                hierarchy = int(feature['properties']['HIERARCHY_ID'], 16)
+                if hierarchy > 0x8A:
+                    continue
 
-            level_ranges =  list(self._base_layers.keys())
-            next_level_ranges =  level_ranges[1:]
-            next_level_ranges.append(level_ranges[-1])
-
-            for idx, level_range in enumerate(level_ranges):
-
-                start, end = level_range
-                nex_start, nex_end = next_level_ranges[idx]
+                geom = shape(feature["geometry"])
+                if geom.geom_type == "LineString":
+                    lines = [geom]
+                elif geom.geom_type == "MultiLineString":
+                    lines = list(geom.geoms)
+                else:
+                    continue
 
                 for line in lines:
-                    segments = self.slice_line_by_elevation(line, level_range)
-
-                    clean_segments = []
-                    for seg in segments:
-                        # extract endpoints
-                        x0, y0 = seg.coords[0]
-                        x1, y1 = seg.coords[-1]
-
-                        # sample elevations from DEM
-                        z0 = self.elevation_at(x0, y0)
-                        z1 = self.elevation_at(x1, y1)
-
-                        # keep only segments strictly inside layer
-                        if (start <= z0 <= nex_start) and (start <= z1 <= nex_start):
-                            clean_segments.append(seg)
-
-                    # Convert to SVG
-                    for seg in clean_segments:
-                        svg_path = self.line_to_svg_path(seg)
+                    if self.line_in_elevation(line, (start, nex_start)):
+                        svg_path = self.line_to_svg_path(line)
                         self._base_road_layers[level_range].append(svg_path)
 
     def compute_base_layer(self, level_range: Tuple[Union[float, int], Union[float, int]]):
@@ -436,7 +401,6 @@ class Map:
         """
 
         self._base_layers = {}
-        self._road_layer = {}
 
         for idx, _ in enumerate(level_steps):
             if idx == len(level_steps) - 1:
