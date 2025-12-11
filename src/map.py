@@ -162,6 +162,18 @@ class Map:
             svg_color = f"rgb({gray},{gray},{gray})"
             save_map_as_svgs(contour, width, height, save_file, color=svg_color, fill=True)
 
+    def save_roads_svg(self, filename):
+        width, height = self.width, self.height
+
+        with open(filename, "w") as f:
+            f.write(f'<svg xmlns="http://www.w3.org/2000/svg" '
+                    f'width="{width}" height="{height}" viewBox="0 0 {width} {height}">\n')
+
+            f.write('<g id="roads" stroke="black" fill="none" stroke-width="1">\n')
+            for d in self._road_layers:
+                f.write(f'  <path d="{d}"/>\n')
+            f.write('</g>\n</svg>')
+
     def _append_roads_to_svg(self, svg_file, road_paths):
         """
         Append road SVG <path> elements to an existing SVG file.
@@ -198,8 +210,7 @@ class Map:
 
             self._save_layer_svg(contour, (start, top), file, color, for_cut)
 
-            if level_range in self._road_layers:
-                self._append_roads_to_svg(file, self._road_layers[level_range])
+        self.save_roads_svg(os.path.join(save_path, f"{self.name}_{start}-{top}_roads.svg"))
 
         if combined:
             first_layer = saved_layers[0]
@@ -289,27 +300,18 @@ class Map:
 
     def compute_road_layers(self):
         """
-        Generates SVG path data for all roads for each layer.
-        Saves results into self._road_layers[level_range] = [svg_path_strings]
+        Generates SVG path data for all roads (fully vector)
         """
+        svg_paths = []
 
-        self._road_layers = {}
-
-        for level_range, base_contours in self._base_layers.items():
-            if not base_contours:
+        for feature in self.roads:
+            hierarchy = int(feature['properties']['HIERARCHY_ID'], 16)
+            if hierarchy > 0x8B:
                 continue
 
-            svg_paths = []
+            svg_paths.extend(self.road_to_svg_paths(feature))
 
-            for feature in self.roads:
-                hierarchy = int(feature['properties']['HIERARCHY_ID'],16)
-                if hierarchy > 0x8B:
-                    continue
-                paths = self.road_to_svg_paths(feature)
-                for d in paths:
-                    svg_paths.append(d)
-
-            self._road_layers[level_range] = svg_paths
+        self._road_layers = svg_paths
 
     def compute_base_layer(self, level_range: Tuple[Union[float, int], Union[float, int]]):
         """
