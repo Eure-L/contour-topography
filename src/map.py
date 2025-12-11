@@ -91,6 +91,23 @@ def point_in_border(point: Point, borders: List[shape]):
     return False
 
 
+def _append_roads_to_svg(svg_file, road_paths):
+    """
+    Append road SVG <path> elements to an existing SVG file.
+    """
+
+    tree = ET.parse(svg_file)
+    root = tree.getroot()
+
+    # Add a <g id="roads"> group
+    g = ET.SubElement(root, "g", id="roads", stroke="black", fill="none", **{"stroke-width": "1"})
+
+    for d in road_paths:
+        ET.SubElement(g, "path", d=d)
+
+    tree.write(svg_file, encoding="utf-8", xml_declaration=True)
+
+
 class Map:
     """
     Interfaces TIF Image file
@@ -176,7 +193,7 @@ class Map:
 
         return valid_segments
 
-    def _save_layer_svg(self, contour, layer_range: Tuple[Union[int, float], Union[int, float]], save_file: str, color,
+    def _save_layer_svg(self, contour, layer_range: Tuple[Union[int, float], Union[int, float]], save_file: str,
                         for_cut: bool):
         """
         Saves a given layer altitude range as SVG
@@ -211,23 +228,7 @@ class Map:
                 f.write(f'  <path d="{d}"/>\n')
             f.write('</g>\n</svg>')
 
-    def _append_roads_to_svg(self, svg_file, road_paths):
-        """
-        Append road SVG <path> elements to an existing SVG file.
-        """
-
-        tree = ET.parse(svg_file)
-        root = tree.getroot()
-
-        # Add a <g id="roads"> group
-        g = ET.SubElement(root, "g", id="roads", stroke="black", fill="none", **{"stroke-width": "1"})
-
-        for d in road_paths:
-            ET.SubElement(g, "path", d=d)
-
-        tree.write(svg_file, encoding="utf-8", xml_declaration=True)
-
-    def save_layers(self, save_path: str, color: bool, combined: bool, for_cut: bool = False):
+    def save_layers(self, save_path: str, combined: bool, for_cut: bool = False):
         """
         Saves all computed layers to SVGs or a single SVG.
 
@@ -246,12 +247,12 @@ class Map:
             file = os.path.join(save_path, f"{self.name}_{start}-{top}.svg")
             saved_layers.append(file)
 
-            self._save_layer_svg(contour, (start, top), file, color, for_cut)
+            self._save_layer_svg(contour, (start, top), file, for_cut)
 
             # Add vector roads for that specific layer
             layer_roads = self._base_road_layers[level_range]
             if layer_roads:
-                self._append_roads_to_svg(file, layer_roads)
+                _append_roads_to_svg(file, layer_roads)
 
         road_svg = os.path.join(save_path, f"{self.name}_{start}-{top}_roads.svg")
         self.save_roads_svg(road_svg)
@@ -324,15 +325,13 @@ class Map:
         geom = shape(feature["geometry"])
         paths = []
 
-        try:
-            if geom.geom_type == "LineString":
-                lines = [geom]
-            elif geom.geom_type == "MultiLineString":
-                lines = list(geom)
-            else:
-                return paths
-        except Exception as e:
+        if geom.geom_type == "LineString":
+            lines = [geom]
+        elif geom.geom_type == "MultiLineString":
+            lines = lines = list(geom.geoms)
+        else:
             return paths
+
 
         for line in lines:
             path_parts = []
@@ -353,7 +352,7 @@ class Map:
     def compute_road_layers(self):
         """
         Computes _base_road_layers: for each elevation layer, the list of SVG paths
-        for the road segments inside that layer.
+        for the road segments inside that layer only (no overlaps between layers).
         """
 
         self._base_road_layers = {lr: [] for lr in self._base_layers.keys()}
@@ -372,11 +371,34 @@ class Map:
             else:
                 continue
 
-            # For each base layer, figure out which portion of the road belongs
-            for level_range in self._base_layers.keys():
+            level_ranges =  list(self._base_layers.keys())
+            next_level_ranges =  level_ranges[1:]
+            next_level_ranges.append(level_ranges[-1])
+
+            for idx, level_range in enumerate(level_ranges):
+
+                start, end = level_range
+                nex_start, nex_end = next_level_ranges[idx]
+
                 for line in lines:
                     segments = self.slice_line_by_elevation(line, level_range)
+
+                    clean_segments = []
                     for seg in segments:
+                        # extract endpoints
+                        x0, y0 = seg.coords[0]
+                        x1, y1 = seg.coords[-1]
+
+                        # sample elevations from DEM
+                        z0 = self.elevation_at(x0, y0)
+                        z1 = self.elevation_at(x1, y1)
+
+                        # keep only segments strictly inside layer
+                        if (start <= z0 <= nex_start) and (start <= z1 <= nex_start):
+                            clean_segments.append(seg)
+
+                    # Convert to SVG
+                    for seg in clean_segments:
                         svg_path = self.line_to_svg_path(seg)
                         self._base_road_layers[level_range].append(svg_path)
 
