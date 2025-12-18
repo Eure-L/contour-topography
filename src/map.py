@@ -29,7 +29,7 @@ def pixel2coord(gt, px, py):
     return (x, y)
 
 
-def save_map_as_svgs(contours, width, height, filename, fill: bool, color="black"):
+def save_map_as_svgs(contours, width, height, filename, fill: bool, color="black", stroke_width_mm: float = 1):
     """Save contours as SVG."""
     with open(filename, 'w') as f:
         f.write(f'<svg xmlns="http://www.w3.org/2000/svg" '
@@ -38,7 +38,7 @@ def save_map_as_svgs(contours, width, height, filename, fill: bool, color="black
             path_data = "M " + " L ".join(f"{int(x)},{int(y)}" for x, y in contour[:, 0, :])
             path_data += " Z"
             fill_str = f'fill="{color}"' if fill else f'fill="none"'
-            f.write(f'  <path d="{path_data}" stroke="{color}" {fill_str} stroke-width="1"/>\n')
+            f.write(f'  <path stroke="{color}" {fill_str} stroke-width="{stroke_width_mm}" d="{path_data}" />\n')
         f.write('</svg>')
 
 
@@ -99,11 +99,8 @@ def _append_roads_to_svg(svg_file, road_paths):
     tree = ET.parse(svg_file)
     root = tree.getroot()
 
-    # Add a <g id="roads"> group
-    g = ET.SubElement(root, "g", id="roads", stroke="black", fill="none", **{"stroke-width": "1"})
-
     for d in road_paths:
-        ET.SubElement(g, "path", d=d)
+        ET.SubElement(root, "ns0:path", stroke="black", fill="none", **{"stroke-width": "1"}, d=d)
 
     tree.write(svg_file, encoding="utf-8", xml_declaration=True)
 
@@ -117,7 +114,7 @@ class Map:
     _border_mask: np.ndarray = None
     _color_picture: np.ndarray = None
     _base_layers: Dict = None
-    _road_layer: List = None
+    _road_layer: List = []
     _base_road_layers: Dict[Tuple[int, int], List[str]] = None
     _width: int = None
     _height: int = None
@@ -193,14 +190,36 @@ class Map:
         min_alt = self.grayscale_picture.min()
         max_alt = self.grayscale_picture.max()
 
+        brown1 = [
+            (1.0, np.array([0xff, 0xff, 0xff])),
+            (0.9, np.array([0x58, 0x31, 0x01])),
+            (0.4, np.array([0x8b, 0x5e, 0x34])),
+            (0.2, np.array([0xd4, 0xa2, 0x76])),
+            (0.0, np.array([0xff, 0xed, 0xd8]))
+        ]
+
+        brown2 = [
+            (1.0, np.array([0xff, 0xff, 0xff])),
+            (0.9, np.array([0x40, 0x05, 0x0f])),
+            (0.4, np.array([0x5f, 0x28, 0x0b])),
+            (0.2, np.array([0x97, 0x4c, 0x02])),
+            (0.0, np.array([0xce, 0x9c, 0x69])),
+        ]
+
+        stops = brown1
+
         if not for_cut:
-            r, g, b = altitude_to_rgb(layer_range[0], min_alt, max_alt)
+            r, g, b = altitude_to_rgb(layer_range[0], min_alt, max_alt, stops=stops)
             svg_color = f"rgb({r},{g},{b})"
-            save_map_as_svgs(contour, width, height, save_file, color=svg_color, fill=True)
+            stroke_width_mm = 2
+            save_map_as_svgs(contour, width, height, save_file, color=svg_color, fill=True,
+                             stroke_width_mm=stroke_width_mm)
         else:
             gray = 255 - altitude_to_gray(layer_range[0], min_alt, max_alt)
             svg_color = f"rgb({gray},{gray},{gray})"
-            save_map_as_svgs(contour, width, height, save_file, color=svg_color, fill=True)
+            stroke_width_mm = 0.001
+            save_map_as_svgs(contour, width, height, save_file, color="red", fill=False,
+                             stroke_width_mm=stroke_width_mm)
 
     def save_roads_svg(self, filename):
         width, height = self.width, self.height
@@ -209,10 +228,9 @@ class Map:
             f.write(f'<svg xmlns="http://www.w3.org/2000/svg" '
                     f'width="{width}" height="{height}" viewBox="0 0 {width} {height}">\n')
 
-            f.write('<g id="roads" stroke="black" fill="none" stroke-width="1">\n')
             for d in self._road_layer:
-                f.write(f'  <path d="{d}"/>\n')
-            f.write('</g>\n</svg>')
+                f.write(f'  <path stroke="black" fill="none" stroke-width="1mm" d="{d}"/>\n')
+            f.write('\n</svg>')
 
     def save_layers(self, save_path: str, combined: bool, for_cut: bool = False):
         """

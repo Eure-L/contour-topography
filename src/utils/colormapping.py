@@ -1,3 +1,5 @@
+from typing import List
+
 import numpy as np
 
 
@@ -18,24 +20,30 @@ def altitude_to_gray(altitude, min_alt, max_alt):
     return gray
 
 
-def altitude_to_rgb(altitude, min_alt, max_alt):
+def altitude_to_rgb(altitude, min_alt, max_alt, stops: List[tuple[float, np.ndarray]] = None):
     """
     Map a single altitude value to an RGB color using linear interpolation.
-
     :param altitude: float, the altitude value
     :param min_alt: minimum altitude for normalization
     :param max_alt: maximum altitude for normalization
+    :param stops: Rgb stops for color interpolation example => [
+                                                            (1.0, np.array([255, 255, 255])),  # white (highest)
+                                                            (0.6, np.array([139, 69, 19])),  # brown
+                                                            (0.2, np.array([0, 255, 0])),  # green
+                                                            (0.0, np.array([0, 100, 255])),  # blue (lowest)
+                                                        ]
     :return: (R, G, B) tuple with values 0-255
     """
     # Normalize to [0,1]
     t = np.clip((altitude - min_alt) / (max_alt - min_alt), 0, 1)
 
-    stops = [
-        (1.0, np.array([255, 255, 255])),  # white (highest)
-        (0.6, np.array([139, 69, 19])),  # brown
-        (0.2, np.array([0, 255, 0])),  # green
-        (0.0, np.array([0, 100, 255])),  # blue (lowest)
-    ]
+    if not stops:
+        stops = [
+            (1.0, np.array([255, 255, 255])),  # white (highest)
+            (0.6, np.array([139, 69, 19])),  # brown
+            (0.2, np.array([0, 255, 0])),  # green
+            (0.0, np.array([0, 100, 255])),  # blue (lowest)
+        ]
 
     for i in range(len(stops) - 1):
         t0, c0 = stops[i]
