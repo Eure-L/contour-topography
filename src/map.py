@@ -10,6 +10,7 @@ from osgeo.gdal import Dataset
 import svgutils.transform as st
 from osgeo.ogr import GeomTransformer
 from shapely import vectorized
+from shapely.geometry.base import BaseGeometry
 from shapely.geometry.linestring import LineString
 from shapely.geometry.multipolygon import MultiPolygon
 
@@ -18,6 +19,8 @@ from shapely.geometry import shape, Point
 import logging
 
 from utils.colormapping import altitude_to_gray
+from utils.colors import ColorStops
+from utils.roads_weights import RoadsWeight
 
 logger = logging.getLogger('map')
 logger.setLevel(logging.DEBUG)
@@ -91,20 +94,6 @@ def point_in_border(point: Point, borders: List[shape]):
     return False
 
 
-def _append_roads_to_svg(svg_file, road_paths):
-    """
-    Append road SVG <path> elements to an existing SVG file.
-    """
-
-    tree = ET.parse(svg_file)
-    root = tree.getroot()
-
-    for d in road_paths:
-        ET.SubElement(root, "ns0:path", stroke="black", fill="none", **{"stroke-width": "1"}, d=d)
-
-    tree.write(svg_file, encoding="utf-8", xml_declaration=True)
-
-
 class Map:
     """
     Interfaces TIF Image file
@@ -115,7 +104,7 @@ class Map:
     _color_picture: np.ndarray = None
     _base_layers: Dict = None
     _road_layer: List = []
-    _base_road_layers: Dict[Tuple[int, int], List[str]] = None
+    _base_road_layers: Dict[Tuple[int, int], List[Tuple[int, str]]] = None
     _width: int = None
     _height: int = None
     _file: str = None
@@ -128,6 +117,10 @@ class Map:
     _corners: Dict = None
     _bounding_box: Dict = None
     _name: str = None
+
+    show_roads = True
+    road_level = 0x8A
+    road_scaling = RoadsWeight.RANKING_1
 
     def __init__(self, tif_file: str, borders_geojson: str = None, roads_geojson: str = None, name: str = None):
         """
@@ -161,7 +154,7 @@ class Map:
             return float(self.grayscale_picture[py, px])
         return None
 
-    def line_in_elevation(self, line: LineString, level_range):
+    def line_in_elevation(self, line: Union[LineString, BaseGeometry], level_range):
         """
         Returns a list of LineString segments from 'line' whose elevation lies inside level_range.
         """
@@ -190,34 +183,18 @@ class Map:
         min_alt = self.grayscale_picture.min()
         max_alt = self.grayscale_picture.max()
 
-        brown1 = [
-            (1.0, np.array([0xff, 0xff, 0xff])),
-            (0.9, np.array([0x58, 0x31, 0x01])),
-            (0.4, np.array([0x8b, 0x5e, 0x34])),
-            (0.2, np.array([0xd4, 0xa2, 0x76])),
-            (0.0, np.array([0xff, 0xed, 0xd8]))
-        ]
-
-        brown2 = [
-            (1.0, np.array([0xff, 0xff, 0xff])),
-            (0.9, np.array([0x40, 0x05, 0x0f])),
-            (0.4, np.array([0x5f, 0x28, 0x0b])),
-            (0.2, np.array([0x97, 0x4c, 0x02])),
-            (0.0, np.array([0xce, 0x9c, 0x69])),
-        ]
-
-        stops = brown1
+        stops = ColorStops.brown1
 
         if not for_cut:
             r, g, b = altitude_to_rgb(layer_range[0], min_alt, max_alt, stops=stops)
             svg_color = f"rgb({r},{g},{b})"
-            stroke_width_mm = 2
+            stroke_width_mm = 1
             save_map_as_svgs(contour, width, height, save_file, color=svg_color, fill=True,
                              stroke_width_mm=stroke_width_mm)
         else:
             gray = 255 - altitude_to_gray(layer_range[0], min_alt, max_alt)
             svg_color = f"rgb({gray},{gray},{gray})"
-            stroke_width_mm = 0.001
+            stroke_width_mm = 1
             save_map_as_svgs(contour, width, height, save_file, color="red", fill=False,
                              stroke_width_mm=stroke_width_mm)
 
@@ -231,6 +208,22 @@ class Map:
             for d in self._road_layer:
                 f.write(f'  <path stroke="black" fill="none" stroke-width="1mm" d="{d}"/>\n')
             f.write('\n</svg>')
+
+    def append_roads_to_svg(self, svg_file, road_paths: List[Tuple[int, str]]):
+        """
+        Append road SVG <path> elements to an existing SVG file.
+        """
+
+        tree = ET.parse(svg_file)
+        root = tree.getroot()
+
+        for road in road_paths:
+            hierarchy, d = road
+            thickness = self.road_scaling.interpolate(hierarchy)
+            path = ET.SubElement(root, "ns0:path", stroke="black", fill="none", **{"stroke-width": f"{thickness}mm"}, d=d)
+            path.tail = "\n"
+
+        tree.write(svg_file, encoding="utf-8", xml_declaration=True)
 
     def save_layers(self, save_path: str, combined: bool, for_cut: bool = False):
         """
@@ -251,15 +244,14 @@ class Map:
             saved_layers.append(file)
 
             self._save_layer_svg(contour, (start, top), file, for_cut)
-
-            # Add vector roads for that specific layer
             layer_roads = self._base_road_layers[level_range]
             if layer_roads:
-                _append_roads_to_svg(file, layer_roads)
+                self.append_roads_to_svg(file, layer_roads)
 
-        road_svg = os.path.join(save_path, f"{self.name}_roads.svg")
-        self.save_roads_svg(road_svg)
-        saved_layers.append(road_svg)
+        if self.show_roads:
+            road_svg = os.path.join(save_path, f"{self.name}_roads.svg")
+            self.save_roads_svg(road_svg)
+            saved_layers.append(road_svg)
 
         if combined:
             first_layer = saved_layers[0]
@@ -312,7 +304,7 @@ class Map:
 
         return px, py
 
-    def line_to_svg_path(self, line: LineString):
+    def line_to_svg_path(self, line: Union[LineString, BaseGeometry]):
         parts = []
         for lon, lat in line.coords:
             px, py = self.geo_to_pixel(lon, lat)
@@ -369,7 +361,7 @@ class Map:
             for feature in self.roads:
 
                 hierarchy = int(feature['properties']['HIERARCHY_ID'], 16)
-                if hierarchy > 0x8A:
+                if hierarchy > self.road_level:
                     continue
 
                 geom = shape(feature["geometry"])
@@ -383,7 +375,7 @@ class Map:
                 for line in lines:
                     if self.line_in_elevation(line, (start, nex_start)):
                         svg_path = self.line_to_svg_path(line)
-                        self._base_road_layers[level_range].append(svg_path)
+                        self._base_road_layers[level_range].append((hierarchy, svg_path))
 
     def compute_base_layer(self, level_range: Tuple[Union[float, int], Union[float, int]]):
         """
