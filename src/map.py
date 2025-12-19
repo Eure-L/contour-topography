@@ -19,7 +19,7 @@ from shapely.geometry import shape, Point
 import logging
 
 from utils.colormapping import altitude_to_gray
-from utils.colors import ColorStops
+from utils.colors import BROWN_1, BROWN_2
 from utils.roads_weights import RoadsWeight
 
 logger = logging.getLogger('map')
@@ -183,10 +183,10 @@ class Map:
         min_alt = self.grayscale_picture.min()
         max_alt = self.grayscale_picture.max()
 
-        stops = ColorStops.brown1
+        stops = BROWN_1
 
         if not for_cut:
-            r, g, b = altitude_to_rgb(layer_range[0], min_alt, max_alt, stops=stops)
+            r, g, b = altitude_to_rgb(layer_range[0], min_alt, max_alt, stops=stops.stops)
             svg_color = f"rgb({r},{g},{b})"
             stroke_width_mm = 1
             save_map_as_svgs(contour, width, height, save_file, color=svg_color, fill=True,
@@ -271,7 +271,7 @@ class Map:
         """
 
         height, width = self.grayscale_picture.shape
-        gt = self.ds.GetGeoTransform()
+        gt = self.gt
 
         x = np.arange(width)
         y = np.arange(height)
