@@ -1,7 +1,10 @@
 import json
+import math
 import os
 from xml.etree import ElementTree as ET
 from typing import Dict, Tuple, Union, List
+
+from shapely.ops import transform as shp_transform
 from PIL import Image
 import cv2
 import numpy as np
@@ -26,23 +29,17 @@ logger = logging.getLogger('map')
 logger.setLevel(logging.DEBUG)
 
 
-def pixel2coord(gt, px, py):
-    x = gt[0] + px * gt[1] + py * gt[2]
-    y = gt[3] + px * gt[4] + py * gt[5]
-    return (x, y)
-
-
-def save_map_as_svgs(contours, width, height, filename, fill: bool, color="black", stroke_width_mm: float = 1):
-    """Save contours as SVG."""
-    with open(filename, 'w') as f:
-        f.write(f'<svg xmlns="http://www.w3.org/2000/svg" '
-                f'width="{width}" height="{height}" viewBox="0 0 {width} {height}">\n')
-        for contour in contours:
-            path_data = "M " + " L ".join(f"{int(x)},{int(y)}" for x, y in contour[:, 0, :])
-            path_data += " Z"
-            fill_str = f'fill="{color}"' if fill else f'fill="none"'
-            f.write(f'  <path stroke="{color}" {fill_str} stroke-width="{stroke_width_mm}" d="{path_data}" />\n')
-        f.write('</svg>')
+def scale_path_y(path: str, lat_scale: float) -> str:
+    # "M x1,y1 L x2,y2 ..." → scale all y coordinates
+    parts = path.split()
+    new_parts = []
+    for part in parts:
+        if ',' in part:
+            x, y = part.split(',')
+            new_parts.append(f"{x},{float(y) * lat_scale}")
+        else:
+            new_parts.append(part)
+    return " ".join(new_parts)
 
 
 def merge_svgs(svg_files, output_file, width=None, height=None):
@@ -114,6 +111,7 @@ class Map:
     _roads: List = None
     _ds: Dataset = None
     _gt: GeomTransformer = None
+    _geojson_to_tif_transformer = None
     _corners: Dict = None
     _bounding_box: Dict = None
     _name: str = None
@@ -143,6 +141,23 @@ class Map:
 
         if roads_geojson is not None:
             self._roads_geojson = roads_geojson
+
+    def pixel2coord(self, px, py):
+        gt = self.gt
+        x = gt[0] + px * gt[1] + py * gt[2]
+        y = gt[3] + px * gt[4] + py * gt[5]
+        return (x, y)
+
+    def pixel2coord_scaled(self, px, py):
+        """
+        Convert pixel → pseudo-metric coordinates
+        where latitude is scaled to match longitude.
+        """
+        gt = self.gt
+        x = gt[0] + px * gt[1] + py * gt[2]
+        y = gt[3] + px * gt[4] + py * gt[5]
+        y *= self.lat_scale
+        return x, y
 
     def show_colour_picture(self):
         img = Image.fromarray(self.color_picture, mode='RGB')
@@ -189,21 +204,37 @@ class Map:
             r, g, b = altitude_to_rgb(layer_range[0], min_alt, max_alt, stops=stops.stops)
             svg_color = f"rgb({r},{g},{b})"
             stroke_width_mm = 1
-            save_map_as_svgs(contour, width, height, save_file, color=svg_color, fill=True,
-                             stroke_width_mm=stroke_width_mm)
+            self.save_map_as_svgs(contour, width, height, save_file, color=svg_color, fill=True,
+                                  stroke_width_mm=stroke_width_mm)
         else:
             gray = 255 - altitude_to_gray(layer_range[0], min_alt, max_alt)
             svg_color = f"rgb({gray},{gray},{gray})"
             stroke_width_mm = 1
-            save_map_as_svgs(contour, width, height, save_file, color="red", fill=False,
-                             stroke_width_mm=stroke_width_mm)
+            self.save_map_as_svgs(contour, width, height, save_file, color="red", fill=False,
+                                  stroke_width_mm=stroke_width_mm)
+
+    def save_map_as_svgs(self, contours, width, height, filename, fill: bool,
+                         color="black", stroke_width_mm: float = 1):
+        """Save contours as SVG. Coordinates already scaled in geo_to_pixel()."""
+        with open(filename, 'w') as f:
+            f.write(f'<svg xmlns="http://www.w3.org/2000/svg" '
+                    f'width="{width}" height="{height}" viewBox="0 0 {width} {height*self.lat_scale}">\n')
+            for contour in contours:
+                path_data = "M " + " L ".join(
+                    f"{int(x)},{int(y)}" for x, y in contour[:, 0, :]
+                )
+                path_data = scale_path_y(path_data, self.lat_scale)
+                path_data += " Z"
+                fill_str = f'fill="{color}"' if fill else f'fill="none"'
+                f.write(f'  <path stroke="{color}" {fill_str} stroke-width="{stroke_width_mm}" d="{path_data}" />\n')
+            f.write('</svg>')
 
     def save_roads_svg(self, filename):
         width, height = self.width, self.height
 
         with open(filename, "w") as f:
             f.write(f'<svg xmlns="http://www.w3.org/2000/svg" '
-                    f'width="{width}" height="{height}" viewBox="0 0 {width} {height}">\n')
+                    f'width="{width}" height="{height}" viewBox="0 0 {width} {height * self.lat_scale}">\n')
 
             for d in self._road_layer:
                 f.write(f'  <path stroke="black" fill="none" stroke-width="1mm" d="{d}"/>\n')
@@ -220,7 +251,8 @@ class Map:
         for road in road_paths:
             hierarchy, d = road
             thickness = self.road_scaling.interpolate(hierarchy)
-            path = ET.SubElement(root, "ns0:path", stroke="black", fill="none", **{"stroke-width": f"{thickness}mm"}, d=d)
+            path = ET.SubElement(root, "ns0:path", stroke="black", fill="none", **{"stroke-width": f"{thickness}mm"},
+                                 d=d)
             path.tail = "\n"
 
         tree.write(svg_file, encoding="utf-8", xml_declaration=True)
@@ -260,6 +292,12 @@ class Map:
                 next_svg = st.fromfile(next_layer)
                 first_svg.append(next_svg)
 
+            # Fix the combined SVG size to account for lat_scale
+            scaled_height = int(self.height * self.lat_scale)
+            first_svg.root.set("width", str(self.width))
+            first_svg.root.set("height", str(scaled_height))
+            first_svg.root.set("viewBox", f"0 0 {self.width} {scaled_height}")
+
             output_file = os.path.join(save_path, self.name + '.svg')
             logger.log(logging.INFO, f"Combined layer => {output_file}")
             first_svg.save(output_file)
@@ -271,45 +309,48 @@ class Map:
         """
 
         height, width = self.grayscale_picture.shape
+
+        if not self.borders_polygons:
+            return np.ones((height, width), dtype=np.uint8) * 255
+
+        xs = np.arange(width)
+        ys = np.arange(height)
+        xx, yy = np.meshgrid(xs, ys)
+
         gt = self.gt
 
-        x = np.arange(width)
-        y = np.arange(height)
-        xx, yy = np.meshgrid(x, y)
+        # Pixel → lon/lat
+        x = gt[0] + xx * gt[1]
+        y = gt[3] + yy * gt[5]
 
-        lon = gt[0] + xx * gt[1] + yy * gt[2]
-        lat = gt[3] + xx * gt[4] + yy * gt[5]
-
-        # Combine all borders into one multipolygon
-        if not self.borders_polygons:
-            return np.ones((height, width), dtype=np.uint8)
+        # Apply latitude scale
+        y = y * self.lat_scale
 
         multipoly = MultiPolygon(self.borders_polygons)
 
-        # Vectorized containment check
-        mask = vectorized.contains(multipoly, lon, lat)
+        inside = vectorized.contains(multipoly, x, y)
 
-        return mask.astype(np.uint8) * 255
+        return (inside.astype(np.uint8) * 255)
 
     def geo_to_pixel(self, lon, lat):
         """
-        Convert geographic coordinates (lon, lat) to pixel coordinates (px, py)
-        using the map geotransform.
+        EPSG:4326 → pixel, with latitude compensation
         """
         gt = self.gt
-        inv_det = 1 / (gt[1] * gt[5] - gt[2] * gt[4])
 
-        px = int((gt[5] * (lon - gt[0]) - gt[2] * (lat - gt[3])) * inv_det)
-        py = int((-gt[4] * (lon - gt[0]) + gt[1] * (lat - gt[3])) * inv_det)
+        px = (lon - gt[0]) / gt[1]
+        py = (lat - gt[3]) / gt[5]
 
-        return px, py
+        return int(px), int(py)
 
     def line_to_svg_path(self, line: Union[LineString, BaseGeometry]):
         parts = []
         for lon, lat in line.coords:
             px, py = self.geo_to_pixel(lon, lat)
             parts.append(f"{px},{py}")
-        return f"M {' L '.join(parts)}"
+        d = f"M {' L '.join(parts)}"
+        d = scale_path_y(d, self.lat_scale)
+        return d
 
     def road_to_svg_paths(self, feature):
         """
@@ -435,7 +476,6 @@ class Map:
     @property
     def borders_polygons(self):
         if self._borders_polygons is None:
-
             self._borders_polygons = []
 
             if self._borders_geojson is None:
@@ -443,8 +483,17 @@ class Map:
 
             with open(self._borders_geojson, 'r') as f:
                 geojson = json.load(f)
+
+            scale = self.lat_scale
+
             for feature in geojson['features']:
-                self._borders_polygons.append(shape(feature['geometry']))
+                geom = shape(feature['geometry'])
+                # Scale latitude ONLY
+                geom = shp_transform(
+                    lambda lon, lat: (lon, lat * scale),
+                    geom
+                )
+                self._borders_polygons.append(geom)
 
         return self._borders_polygons
 
@@ -545,11 +594,33 @@ class Map:
 
         # Pixel to geo coordinates
         corners = {
-            "upper_left": pixel2coord(self.gt, 0, 0),
-            "upper_right": pixel2coord(self.gt, xsize, 0),
-            "lower_left": pixel2coord(self.gt, 0, ysize),
-            "lower_right": pixel2coord(self.gt, xsize, ysize),
-            "center": pixel2coord(self.gt, xsize // 2, ysize // 2)
+            "upper_left": self.pixel2coord(0, 0),
+            "upper_right": self.pixel2coord(xsize, 0),
+            "lower_left": self.pixel2coord(0, ysize),
+            "lower_right": self.pixel2coord(xsize, ysize),
+            "center": self.pixel2coord(xsize // 2, ysize // 2)
         }
 
         return corners
+
+    @property
+    def lat_scale(self):
+        """
+        Scale factor to compensate for EPSG:4326 latitude distortion.
+        """
+        lat0 = self.corners["center"][1]  # degrees
+        scale = 1.0 / math.cos(math.radians(lat0))
+        return scale
+
+    def debug_scaling(self):
+        px1, py1 = self.geo_to_pixel(
+            self.corners["center"][0],
+            self.corners["center"][1]
+        )
+
+        px2, py2 = self.geo_to_pixel(
+            self.corners["center"][0],
+            self.corners["center"][1] + 0.01
+        )
+
+        print("Δpy:", py2 - py1)
