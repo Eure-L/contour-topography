@@ -1,29 +1,26 @@
 import json
+import logging
 import math
 import os
-from math import floor
-from xml.etree import ElementTree as ET
 from typing import Dict, Tuple, Union, List
+from xml.etree import ElementTree as ET
 
-from shapely.ops import transform as shp_transform
-from PIL import Image
 import cv2
 import numpy as np
+from PIL import Image
 from osgeo import gdal
 from osgeo.gdal import Dataset
-import svgutils.transform as st
 from osgeo.ogr import GeomTransformer
 from shapely import vectorized
+from shapely.geometry import shape, Point
 from shapely.geometry.base import BaseGeometry
 from shapely.geometry.linestring import LineString
 from shapely.geometry.multipolygon import MultiPolygon
+from shapely.ops import transform as shp_transform
 
 from src.utils.colormapping import altitudes_to_rgb_array, altitude_to_rgb
-from shapely.geometry import shape, Point
-import logging
-
 from utils.colormapping import altitude_to_gray
-from utils.colors import BROWN_1, BROWN_2
+from utils.colors import BROWN_1
 from utils.roads_weights import RoadsWeight
 
 logger = logging.getLogger('map')
@@ -198,7 +195,6 @@ class Map:
         :param for_cut:
         :return:
         """
-        height, width = self.grayscale_picture.shape
         min_alt = self.grayscale_picture.min()
         max_alt = self.grayscale_picture.max()
 
@@ -208,24 +204,28 @@ class Map:
             r, g, b = altitude_to_rgb(layer_range[0], min_alt, max_alt, stops=stops.stops)
             svg_color = f"rgb({r},{g},{b})"
             stroke_width_mm = 1
-            self.save_map_as_svgs(contour, width, height, save_file, color=svg_color, fill=True,
+            self.save_map_as_svgs(contour,  save_file, color=svg_color, fill=True,
                                   stroke_width_mm=stroke_width_mm)
         else:
             gray = 255 - altitude_to_gray(layer_range[0], min_alt, max_alt)
             svg_color = f"rgb({gray},{gray},{gray})"
             stroke_width_mm = 1
-            self.save_map_as_svgs(contour, width, height, save_file, color="red", fill=False,
+            self.save_map_as_svgs(contour,  save_file, color="red", fill=False,
                                   stroke_width_mm=stroke_width_mm)
 
-    def save_map_as_svgs(self, contours, width, height, filename, fill: bool,
+    def save_map_as_svgs(self, contours, filename, fill: bool,
                          color="black", stroke_width_mm: float = 1):
         """Save contours as SVG. Coordinates already scaled in geo_to_pixel()."""
 
         stroke_width_mm = round(stroke_width_mm, 1)
+        height, width = self.grayscale_picture.shape
+        viewbox_height = int(height * self.lat_scale)
+        viewbox_width = width
 
         with open(filename, 'w') as f:
+
             f.write(f'<svg xmlns="http://www.w3.org/2000/svg" '
-                    f'width="{A3.width}" height="{A3.height}" viewBox="0 0 {width} {height*self.lat_scale}">\n')
+                    f'width="{A3.width}" height="{A3.height}" viewBox="0 0 {viewbox_width} {viewbox_height}">\n')
             for contour in contours:
                 path_data = "M " + " L ".join(
                     f"{int(x)},{int(y)}" for x, y in contour[:, 0, :]
@@ -235,18 +235,6 @@ class Map:
                 fill_str = f'fill="{color}"' if fill else f'fill="none"'
                 f.write(f'  <path stroke="{color}" {fill_str} stroke-width="{stroke_width_mm}" d="{path_data}" />\n')
             f.write('</svg>')
-
-    def save_roads_svg(self, filename):
-
-        width, height = self.width, self.height  * self.lat_scale
-
-        with open(filename, "w") as f:
-            f.write(f'<svg xmlns="http://www.w3.org/2000/svg" '
-                    f'width="{A3.width}" height="{A3.height}" viewBox="0 0 {width} {height}">\n')
-
-            for d in self._road_layer:
-                f.write(f'  <path stroke="black" fill="none" stroke-width="1mm" d="{d}"/>\n')
-            f.write('\n</svg>')
 
     def append_roads_to_svg(self, svg_file, road_paths: List[Tuple[int, str]]):
         """
@@ -296,13 +284,15 @@ class Map:
 
         # Combine layers into a single SVG if requested
         if combined and saved_layers:
-            # Create root SVG element with correct A3 size and viewBox
+            height, width = self.grayscale_picture.shape
+            viewbox_height = int(height * self.lat_scale)
+            viewbox_width = width
             combined_svg = ET.Element(
                 "svg",
                 xmlns="http://www.w3.org/2000/svg",
                 width=A3.width,
                 height=A3.height,
-                viewBox=f"0 0 {self.width} {self.height}"
+                viewBox=f"0 0 {viewbox_width} {viewbox_height}"
             )
 
             for layer_file in saved_layers:

@@ -2,22 +2,27 @@
 This project helps with topography contour rendering. 
 Only requires a geotiff file containing altitudes encoded as grayscales to create a parametric object with parametric rendering options.
 
-## Examples
+## Example
 
-<img src="doc/contours.svg" alt="Just contours" style="width:200px;"/>
-<img src="doc/contours_coloured.svg" alt="Coloured contours" style="width:200px;"/>
-<img src="doc/contours_border.svg" alt="Contours with borders" style="width:200px;"/>
-<img src="doc/contours_borders_coloured.svg" alt="Coloured contours with border " style="width:200px;"/>
+<img src="doc/canberra.svg" alt="Canberra with roads" style="width:200px;"/>
+
 
 ## Usages
-```shell
-    TIF_DATA = os.path.join("../data/canberra.tif")
-    BORDER_DATA = os.path.join("../data/ACTGOV_BORDER_8764495160505726925.geojson")
-    OUT_DATA = os.path.join("../data/generated2")
+```python
+from src.map import Map
+from utils.roads_weights import RoadsWeight
 
-    canberra_map = Map(tif_file=TIF_DATA, borders_geojson=BORDER_DATA)
-    canberra_map.compute_all_layers(level_step=100)
-    canberra_map.save_layers(save_path=OUT_DATA, color=True, combined=True, for_cut=False)
+tif_data =      # path to tif file
+borders_data =  # path to Geojson borders file
+roads_data =    # path to roads geojson file
+save_path =     # out path
+
+contour_map = Map(tif_file=tif_data, borders_geojson=border_data, roads_geojson=roads_data)
+contour_map.road_level = 0x8B
+contour_map.road_scaling = RoadsWeight.RANKING_1
+
+contour_map.compute_all_layers(level_steps=list(range(556,2000,100)))
+contour_map.save_layers(save_path=dst, combined=True, for_cut=False)
 ```
 
 # Prerequisites
