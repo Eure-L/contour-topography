@@ -10,7 +10,7 @@ import numpy as np
 from osgeo import gdal
 from osgeo.gdal import Dataset
 from osgeo.ogr import GeomTransformer
-from shapely import vectorized
+from shapely import vectorized, Polygon
 from shapely.geometry import shape
 from shapely.geometry.base import BaseGeometry
 from shapely.geometry.linestring import LineString
@@ -114,38 +114,48 @@ class Map:
 
         return None
 
-    def line_in_elevation(self, line: Union[LineString, BaseGeometry], level_range: Tuple[float, float]) -> bool:
+    def feature_in_elevation(self, feature: Union[LineString, Polygon, BaseGeometry],
+                             level_range: Tuple[float, float]) -> bool:
         """
-        Check if any part of a line lies within the specified elevation range.
+        Check if any part of a feature (line or polygon) lies within the specified elevation range.
 
         Args:
-            line: Shapely LineString or BaseGeometry object
+            feature: Shapely geometry object (LineString, Polygon, etc.)
             level_range: Tuple of (min_elevation, max_elevation)
 
         Returns:
-            True if any part of the line is within elevation range, False otherwise
+            True if any part of the feature is within elevation range, False otherwise
         """
         min_alt, max_alt = level_range
 
-        # Handle different geometry types properly
-        if isinstance(line, LineString):
-            coords = list(line.coords)
-        elif hasattr(line, 'geoms'):  # MultiLineString or similar
-            # Check all segments
-            for segment in line.geoms:
-                if self.line_in_elevation(segment, level_range):
+        def check_coords(coords):
+            """Helper function to check if any coordinate is within elevation range"""
+            for lon, lat in coords:
+                elev = self.elevation_at(lon, lat)
+                if elev is not None and min_alt <= elev < max_alt:
+                    return True
+            return False
+
+        if isinstance(feature, LineString):
+            return check_coords(list(feature.coords))
+        elif isinstance(feature, Polygon):
+            # Check exterior ring
+            if check_coords(list(feature.exterior.coords)):
+                return True
+            # Check interior rings (holes)
+            for interior in feature.interiors:
+                if check_coords(list(interior.coords)):
+                    return True
+            return False
+        elif hasattr(feature, 'geoms'):  # MultiLineString, MultiPolygon, etc.
+            # Check all parts
+            for part in feature.geoms:
+                if self.feature_in_elevation(part, level_range):
                     return True
             return False
         else:
             return False
 
-        for lon, lat in coords:
-            elev = self.elevation_at(lon, lat)
-            inside = (elev is not None and min_alt <= elev < max_alt)
-            if inside:
-                return True
-
-        return False
 
     def save_layer_as_svg(self, contour: np.ndarray, layer_range: Tuple[Union[int, float], Union[int, float]],
                           save_file: str, for_cut: bool):
@@ -237,6 +247,24 @@ class Map:
 
         tree.write(svg_file, encoding="utf-8", xml_declaration=True)
 
+    def append_water_to_svg(self, svg_file: str, water_paths: List[str]):
+        """
+        Append water surfaces to an existing SVG file.
+
+        Args:
+            svg_file: Path to existing SVG file
+            water_paths: List of SVG path data strings for water surfaces
+        """
+        tree = ET.parse(svg_file)
+        root = tree.getroot()
+
+        for d in water_paths:
+            path = ET.SubElement(root, "ns0:path", stroke="black", fill="#ADD8E6",
+                                 **{"stroke-width": "0.1mm"}, d=d)
+            path.tail = "\n"
+
+        tree.write(svg_file, encoding="utf-8", xml_declaration=True)
+
     def get_border_mask(self) -> np.ndarray:
         """
         Create a mask where pixels inside borders are 255, outside are 0.
@@ -295,6 +323,11 @@ class Map:
                 layer_roads = self._road_layers.get(level_range, [])
                 if layer_roads:
                     self.append_roads_to_svg(file, layer_roads)
+
+            if self.show_water_surfaces:
+                layer_waters = self._water_layers.get(level_range, [])
+                if layer_waters:
+                    self.append_water_to_svg(file, layer_waters)
 
         # Combine layers into a single SVG if requested
         if combined and saved_layers:
@@ -403,20 +436,33 @@ class Map:
                 if road.hierarchy > self.road_level:
                     continue
 
-                if self.line_in_elevation(road.geometry, (start, nex_start)):
+                if self.feature_in_elevation(road.geometry, (start, nex_start)):
                     for svg_path in road.paths:
                         self._road_layers[level_range].append((road.hierarchy, svg_path))
 
     def compute_water_surfaces(self):
         """
-        Compute watersurfaces layers for each elevation layer.
-        If a water body is on mutiple layers (ex: flowing River), it is considered to be on multiple layers.
+        Compute water surfaces for each elevation layer.
+        If a water body spans multiple layers (e.g., flowing river), it is included in all relevant layers.
 
-        Populates self._water_layers with road segments that fall within
+        Populates self._water_layers with water surfaces that fall within
         each elevation layer's range.
         """
-        water_surfaces = self.water_surfaces
-        return
+        self._water_layers = {lr: [] for lr in self._topo_layers.keys()}
+        level_ranges = list(self._topo_layers.keys())
+        next_level_ranges = level_ranges[1:]
+        next_level_ranges.append(level_ranges[-1])
+
+        for idx, level_range in enumerate(level_ranges):
+            start, end = level_range
+            nex_start, nex_end = next_level_ranges[idx]
+
+            for water in self.water_surfaces:
+                # Check if water feature intersects with this elevation range
+                if self.feature_in_elevation(water.geometry, (start, nex_start)):
+                    # Convert water geometry to SVG paths
+                    svg_paths = water.to_svg_paths()
+                    self._water_layers[level_range].extend(svg_paths)
 
     @property
     def name(self):
@@ -476,7 +522,7 @@ class Map:
     def water_surfaces(self) -> List[WaterFeature]:
         if self._water_features is None:
             self._water_features = []
-            if self._roads_geojson is None:
+            if self._waters_geojson is None:
                 return self._water_features
 
             with open(self._waters_geojson, 'r') as f:

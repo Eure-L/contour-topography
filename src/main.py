@@ -28,10 +28,11 @@ def main():
 
     # instantiate the MAP object
     contour_map = Map(tif_file=tif_data, borders_geojson=border_geojson, roads_geojson=roads_geojson, waters_geojson=waters_geojson)
-    contour_map.road_level = 0xfff
+    contour_map.road_level = 0x8B
     contour_map.road_scaling = RoadsWeight.RANKING_1
     contour_map.show_roads = True
     contour_map.show_contour_strokes = True
+    contour_map.show_water_surfaces = True
 
     # Compute its layers
     contour_map.compute_all_layers(level_steps=LayerRanges.third_13)
