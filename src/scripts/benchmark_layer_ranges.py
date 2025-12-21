@@ -32,7 +32,7 @@ def main():
             print(name)
             contour_map.compute_all_layers(level_steps=layer_range)
             contour_map.name = name
-            contour_map.save_layers(save_path=out_data, combined=True, for_cut=False, remove_inters=True)
+            contour_map.save_all_layers(save_path=out_data, combined=True, for_cut=False, remove_inters=True)
 
 if __name__ == "__main__":
     main()

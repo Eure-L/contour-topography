@@ -16,6 +16,6 @@ class BaseFeature:
         self.lat_scale = lat_scale
         self.lon_scale = lon_scale
 
-    def to_svg_paths(self, pixel_converter) -> List[str]:
+    def to_svg_paths(self) -> List[str]:
         """Convert geometry to SVG path strings"""
         raise NotImplementedError("Subclasses must implement this method")

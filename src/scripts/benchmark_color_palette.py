@@ -31,7 +31,7 @@ def main():
     for palette_name, palette in ColorPalettes.get_all_palettes().items():
         contour_map.name = palette_name
         contour_map.color_palette = palette
-        contour_map.save_layers(save_path=out_data, combined=True, for_cut=False, remove_inters=True)
+        contour_map.save_all_layers(save_path=out_data, combined=True, for_cut=False, remove_inters=True)
 
 
 if __name__ == "__main__":

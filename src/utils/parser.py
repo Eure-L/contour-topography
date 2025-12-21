@@ -34,6 +34,14 @@ def argv_parser():
     )
 
     parser.add_argument(
+        '-w', '--ws-geojson',
+        type=str,
+        default=None,
+        help='Path to the GeoJSON file containing water surfaces data',
+        required=False
+    )
+
+    parser.add_argument(
         '-o', '--output-dir',
         type=str,
         default=defaults.out_dir,

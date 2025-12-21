@@ -27,8 +27,11 @@ class RoadFeature(BaseFeature):
             path_parts = []
             for lon, lat in line:
                 px, py = geo_to_pixel(self.gt, lon, lat)
+                pxpy_str = f"{px},{int(py * self.lat_scale)}"
 
-                path_parts.append(f"{px},{int(py * self.lat_scale)}")
+                # prevents duplicate points in the same road line
+                if pxpy_str not in path_parts:
+                    path_parts.append(pxpy_str)
 
             if len(path_parts) > 1:
                 d = "M " + " L ".join(path_parts)

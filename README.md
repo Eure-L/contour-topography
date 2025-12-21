@@ -23,7 +23,7 @@ contour_map.road_level = 0x8B
 contour_map.road_scaling = RoadsWeight.RANKING_1
 
 contour_map.compute_all_layers(level_steps=list(range(556, 2000, 100)))
-contour_map.save_layers(save_path=dst, combined=True, for_cut=False)
+contour_map.save_all_layers(save_path=dst, combined=True, for_cut=False)
 ```
 
 # Prerequisites
