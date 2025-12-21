@@ -45,7 +45,7 @@ def argv_parser():
         type=str,
         default=None,
         help="Elevation list of steps (in meters), ';' separated",
-        required=True
+        required=False
     )
 
     parser.add_argument(

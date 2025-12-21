@@ -1,6 +1,6 @@
-# Contour-Tpography
+# Contour Topography
 This project helps with topography contour rendering. 
-Only requires a geotiff file containing altitudes encoded as grayscales to create a parametric object with parametric rendering options.
+Requires a geotiff file containing altitudes encoded as grayscales to create a parametric object with parametric rendering options.
 
 ## Example
 

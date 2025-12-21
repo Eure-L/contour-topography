@@ -19,19 +19,31 @@ from shapely.geometry.multipolygon import MultiPolygon
 from shapely.ops import transform as shp_transform
 
 from src.utils.colormapping import altitudes_to_rgb_array, altitude_to_rgb
+from utils.color_stop import ColorStop
 from utils.colormapping import altitude_to_gray
-from utils.colors import BROWN_1
+from utils.colors import ColorPalettes
 from utils.roads_weights import RoadsWeight
 
 logger = logging.getLogger('map')
 logger.setLevel(logging.DEBUG)
 
+
 class A3:
     width = "297mm"
     height = "420mm"
 
+
 def scale_path_y(path: str, lat_scale: float) -> str:
-    # "M x1,y1 L x2,y2 ..." → scale all y coordinates
+    """
+    Scale the Y coordinates in an SVG path string by the given latitude scale factor.
+
+    Args:
+        path: SVG path string in format "M x1,y1 L x2,y2 ..."
+        lat_scale: Scale factor to apply to Y coordinates
+
+    Returns:
+        SVG path string with scaled Y coordinates
+    """
     parts = path.split()
     new_parts = []
     for part in parts:
@@ -79,12 +91,16 @@ def merge_svgs(svg_files, output_file, width=None, height=None):
     print(f"Merged SVG saved to {output_file}")
 
 
-def point_in_border(point: Point, borders: List[shape]):
+def point_in_border(point: Point, borders: List[shape]) -> bool:
     """
-    Checks wether a point is inside a list of borders.
-    :param point:
-    :param borders:
-    :return:
+    Check if a point is inside any of the given border polygons.
+
+    Args:
+        point: Shapely Point object to check
+        borders: List of Shapely polygon objects representing borders
+
+    Returns:
+        True if point is inside any border, False otherwise
     """
     for border in borders:
         if border.contains(point):
@@ -116,7 +132,9 @@ class Map:
     _corners: Dict = None
     _bounding_box: Dict = None
     _name: str = None
+    _color_palette: ColorStop = None
 
+    show_contour_strokes = False
     show_roads = True
     road_level = 0x8A
     road_scaling = RoadsWeight.RANKING_1
@@ -143,17 +161,33 @@ class Map:
         if roads_geojson is not None:
             self._roads_geojson = roads_geojson
 
-    def pixel2coord(self, px, py):
+    def pixel2coord(self, px: int, py: int) -> Tuple[float, float]:
+        """
+        Convert pixel coordinates to geographic coordinates (EPSG:4326).
+
+        Args:
+            px: Pixel X coordinate
+            py: Pixel Y coordinate
+
+        Returns:
+            Tuple of (longitude, latitude) coordinates
+        """
         gt = self.gt
         x = gt[0] + px * gt[1] + py * gt[2]
         y = gt[3] + px * gt[4] + py * gt[5]
         return (x, y)
 
-    def pixel2coord_scaled(self, px, py):
+    def pixel2coord_scaled(self, px: int, py: int) -> Tuple[float, float]:
         """
-        Convert pixel → pseudo-metric coordinates
-        where latitude is scaled to match longitude.
-        """
+        Convert pixel coordinates to pseudo-metric coordinates with latitude scaling.
+
+        Args:
+            px: Pixel X coordinate
+            py: Pixel Y coordinate
+
+        Returns:
+                    Tuple of (scaled longitude, scaled latitude) coordinates
+    """
         gt = self.gt
         x = gt[0] + px * gt[1] + py * gt[2]
         y = gt[3] + px * gt[4] + py * gt[5]
@@ -161,20 +195,39 @@ class Map:
         return x, y
 
     def show_colour_picture(self):
+        """
+        Display the color elevation map using PIL.
+        """
         img = Image.fromarray(self.color_picture, mode='RGB')
         img.show(self.name)
 
-    def elevation_at(self, lon, lat):
+    def elevation_at(self, lon: float, lat: float) -> Union[float, None]:
+        """
+        Get elevation value at specific geographic coordinates.
+
+        Args:
+            lon: Longitude coordinate
+            lat: Latitude coordinate
+
+        Returns:
+            Elevation value in meters, or None if coordinates are out of bounds
+        """
         px, py = self.geo_to_pixel(lon, lat)
         if 0 <= px < self.width and 0 <= py < self.height:
             return float(self.grayscale_picture[py, px])
         return None
 
-    def line_in_elevation(self, line: Union[LineString, BaseGeometry], level_range):
+    def line_in_elevation(self, line: Union[LineString, BaseGeometry], level_range: Tuple[float, float]) -> bool:
         """
-        Returns a list of LineString segments from 'line' whose elevation lies inside level_range.
-        """
+        Check if any part of a line lies within the specified elevation range.
 
+        Args:
+            line: Shapely LineString or BaseGeometry object
+            level_range: Tuple of (min_elevation, max_elevation)
+
+        Returns:
+            True if any part of the line is within elevation range, False otherwise
+        """
         min_alt, max_alt = level_range
         coords = list(line.coords)
 
@@ -186,36 +239,54 @@ class Map:
 
         return False
 
-    def _save_layer_svg(self, contour, layer_range: Tuple[Union[int, float], Union[int, float]], save_file: str,
-                        for_cut: bool):
+    def _save_layer_svg(self, contour: np.ndarray, layer_range: Tuple[Union[int, float], Union[int, float]],
+                        save_file: str, for_cut: bool):
         """
-        Saves a given layer altitude range as SVG
+        Save a contour layer as an SVG file.
 
-        :param save_file: dst save file
-        :param for_cut:
-        :return:
+        Args:
+            contour: Numpy array of contour points
+            layer_range: Elevation range tuple (min, max)
+            save_file: Output SVG file path
+            for_cut: Whether the SVG is for CNC cutting (affects styling)
         """
         min_alt = self.grayscale_picture.min()
         max_alt = self.grayscale_picture.max()
 
-        stops = BROWN_1
-
         if not for_cut:
-            r, g, b = altitude_to_rgb(layer_range[0], min_alt, max_alt, stops=stops.stops)
+            r, g, b = altitude_to_rgb(layer_range[0], min_alt, max_alt, self.color_palette)
             svg_color = f"rgb({r},{g},{b})"
             stroke_width_mm = 1
-            self.save_map_as_svgs(contour,  save_file, color=svg_color, fill=True,
+            self.save_map_as_svgs(contour, save_file,
+                                  fill_color=svg_color,
+                                  stroke_color=svg_color if not self.show_contour_strokes else "black",
+                                  fill=True,
                                   stroke_width_mm=stroke_width_mm)
         else:
             gray = 255 - altitude_to_gray(layer_range[0], min_alt, max_alt)
             svg_color = f"rgb({gray},{gray},{gray})"
             stroke_width_mm = 1
-            self.save_map_as_svgs(contour,  save_file, color="red", fill=False,
+            self.save_map_as_svgs(contour, save_file,
+                                  fill_color="red",
+                                  stroke_color=svg_color if not self.show_contour_strokes else "black",
+                                  fill=False,
                                   stroke_width_mm=stroke_width_mm)
 
-    def save_map_as_svgs(self, contours, filename, fill: bool,
-                         color="black", stroke_width_mm: float = 1):
-        """Save contours as SVG. Coordinates already scaled in geo_to_pixel()."""
+    def save_map_as_svgs(self, contours: np.ndarray, filename: str, fill: bool,
+                         fill_color: str = "black",
+                         stroke_color: str = "black",
+                         stroke_width_mm: float = 1):
+        """
+        Save contours as SVG file with proper scaling and viewbox.
+
+        Args:
+            contours: List of contour arrays
+            filename: Output SVG file path
+            fill: Whether to fill the contours
+            fill_color: Stroke/fill color
+            stroke_width_mm: Stroke width in millimeters
+            stroke_color: Color of the stroke
+        """
 
         stroke_width_mm = round(stroke_width_mm, 1)
         height, width = self.grayscale_picture.shape
@@ -223,7 +294,6 @@ class Map:
         viewbox_width = width
 
         with open(filename, 'w') as f:
-
             f.write(f'<svg xmlns="http://www.w3.org/2000/svg" '
                     f'width="{A3.width}" height="{A3.height}" viewBox="0 0 {viewbox_width} {viewbox_height}">\n')
             for contour in contours:
@@ -232,13 +302,18 @@ class Map:
                 )
                 path_data = scale_path_y(path_data, self.lat_scale)
                 path_data += " Z"
-                fill_str = f'fill="{color}"' if fill else f'fill="none"'
-                f.write(f'  <path stroke="{color}" {fill_str} stroke-width="{stroke_width_mm}" d="{path_data}" />\n')
+                fill_str = f'fill="{fill_color}"' if fill else f'fill="none"'
+                f.write(
+                    f'  <path stroke="{stroke_color}" {fill_str} stroke-width="{stroke_width_mm}" d="{path_data}" />\n')
             f.write('</svg>')
 
-    def append_roads_to_svg(self, svg_file, road_paths: List[Tuple[int, str]]):
+    def append_roads_to_svg(self, svg_file: str, road_paths: List[Tuple[int, str]]):
         """
-        Append road SVG <path> elements to an existing SVG file.
+        Append road paths to an existing SVG file.
+
+        Args:
+            svg_file: Path to existing SVG file
+            road_paths: List of tuples (hierarchy, svg_path_data)
         """
 
         tree = ET.parse(svg_file)
@@ -247,22 +322,26 @@ class Map:
         for road in road_paths:
             hierarchy, d = road
             thickness = self.road_scaling.interpolate(hierarchy)
-            thickness = round(thickness,1)
+            thickness = round(thickness, 1)
             path = ET.SubElement(root, "ns0:path", stroke="black", fill="none", **{"stroke-width": f"{thickness}mm"},
                                  d=d)
             path.tail = "\n"
 
         tree.write(svg_file, encoding="utf-8", xml_declaration=True)
 
-    def save_layers(self, save_path: str, combined: bool, for_cut: bool = False):
+    def save_layers(self, save_path: str, combined: bool, for_cut: bool = False, remove_inters=False):
         """
-        Saves all computed layers to SVGs or a single SVG.
+        Save all elevation layers as SVG files.
 
-        :param for_cut:     Whether it's for CNC cutting
-        :param save_path:   Destination path
-        :param combined:    Whether to combine all layers into a single SVG
+        Args:
+            save_path: Directory to save SVG files
+            combined: Whether to combine all layers into one SVG
+            for_cut: Whether SVGs are for CNC cutting
+            remove_inters: Whether to remove intermediary built layers after combining
         """
         saved_layers = []
+
+        os.makedirs(save_path, exist_ok=True)
 
         # Save each layer as an individual SVG
         for level_range, contour in self._base_layers.items():
@@ -270,17 +349,12 @@ class Map:
             start, top = int(start), int(top)
             file = os.path.join(save_path, f"{self.name}_{start}-{top}.svg")
             saved_layers.append(file)
-
             self._save_layer_svg(contour, (start, top), file, for_cut)
-            layer_roads = self._base_road_layers.get(level_range, [])
-            if layer_roads:
-                self.append_roads_to_svg(file, layer_roads)
 
-        # # Save road-only layer if applicable
-        # if self.show_roads:
-        #     road_svg = os.path.join(save_path, f"{self.name}_roads.svg")
-        #     self.save_roads_svg(road_svg)
-        #     saved_layers.append(road_svg)
+            if self.show_roads:
+                layer_roads = self._base_road_layers.get(level_range, [])
+                if layer_roads:
+                    self.append_roads_to_svg(file, layer_roads)
 
         # Combine layers into a single SVG if requested
         if combined and saved_layers:
@@ -312,10 +386,21 @@ class Map:
             ET.ElementTree(combined_svg).write(output_file, encoding="utf-8", xml_declaration=True)
             logger.info(f"Combined SVG saved to {output_file}")
 
-    def get_border_mask(self):
+            # Remove intermediary layers if requested
+            if remove_inters:
+                for layer_file in saved_layers:
+                    try:
+                        os.remove(layer_file)
+                        logger.info(f"Removed intermediary layer: {layer_file}")
+                    except OSError as e:
+                        logger.error(f"Error removing file {layer_file}: {e}")
+
+    def get_border_mask(self) -> np.ndarray:
         """
-        Create a mask where pixels inside any of the given borders are 1, otherwise 0.
-        Vectorized implementation using shapely.vectorized.contains.
+        Create a mask where pixels inside borders are 255, outside are 0.
+
+        Returns:
+            Numpy array representing the border mask
         """
 
         height, width = self.grayscale_picture.shape
@@ -342,10 +427,18 @@ class Map:
 
         return (inside.astype(np.uint8) * 255)
 
-    def geo_to_pixel(self, lon, lat):
+    def geo_to_pixel(self, lon: float, lat: float) -> Tuple[int, int]:
         """
-        EPSG:4326 → pixel, with latitude compensation
+        Convert geographic coordinates to pixel coordinates.
+
+        Args:
+            lon: Longitude
+            lat: Latitude
+
+        Returns:
+            Tuple of (pixel_x, pixel_y) coordinates
         """
+
         gt = self.gt
 
         px = (lon - gt[0]) / gt[1]
@@ -353,7 +446,17 @@ class Map:
 
         return int(px), int(py)
 
-    def line_to_svg_path(self, line: Union[LineString, BaseGeometry]):
+    def line_to_svg_path(self, line: Union[LineString, BaseGeometry]) -> str:
+        """
+        Convert a Shapely line to SVG path data string.
+
+        Args:
+            line: Shapely LineString or BaseGeometry
+
+        Returns:
+            SVG path data string
+        """
+
         parts = []
         for lon, lat in line.coords:
             px, py = self.geo_to_pixel(lon, lat)
@@ -362,10 +465,15 @@ class Map:
         d = scale_path_y(d, self.lat_scale)
         return d
 
-    def road_to_svg_paths(self, feature):
+    def road_to_svg_paths(self, feature: Dict) -> List[str]:
         """
-        Convert a GeoJSON road feature to one or more SVG <path> strings.
-        Handles LineString and MultiLineString.
+        Convert GeoJSON road feature to SVG path strings.
+
+        Args:
+            feature: GeoJSON feature dictionary
+
+        Returns:
+            List of SVG path data strings
         """
 
         geom = shape(feature["geometry"])
@@ -396,8 +504,10 @@ class Map:
 
     def compute_road_layers(self):
         """
-        Computes _base_road_layers: for each elevation layer, the list of SVG paths
-        for the road segments inside that layer only (no overlaps between layers).
+        Compute road layers for each elevation layer.
+
+        Populates self._base_road_layers with road segments that fall within
+        each elevation layer's range.
         """
 
         self._base_road_layers = {lr: [] for lr in self._base_layers.keys()}
@@ -430,11 +540,10 @@ class Map:
 
     def compute_base_layer(self, level_range: Tuple[Union[float, int], Union[float, int]]):
         """
-        Draws the contour of for a given elevation range.
-        If a border is given for the map, draws the inside of the border
+        Compute contour for a specific elevation range.
 
-        :param level_range:
-        :return:
+        Args:
+            level_range: Tuple of (min_elevation, max_elevation)
         """
         mask = np.zeros_like(self.grayscale_picture, dtype=np.uint8)
 
@@ -455,10 +564,10 @@ class Map:
 
     def compute_all_layers(self, level_steps: List[int]):
         """
-        Draws all the contour layers at different altitude levels
+        Compute all elevation layers based on given level steps.
 
-        :param level_steps:
-        :return:
+        Args:
+            level_steps: List of elevation values defining layer boundaries
         """
 
         self._base_layers = {}
@@ -471,11 +580,16 @@ class Map:
             level_range = (level_steps[idx - 1], level_steps[-1])
             self.compute_base_layer(level_range)
 
-        self.compute_road_layers()
+        if self.show_roads:
+            self.compute_road_layers()
 
     @property
     def name(self):
         return self._name
+
+    @name.setter
+    def name(self, value: str):
+        self._name = value
 
     @property
     def border_mask(self):
@@ -568,6 +682,16 @@ class Map:
         if self._corners is None:
             self._corners = self._get_corners()
         return self._corners
+
+    @property
+    def color_palette(self) -> ColorStop:
+        if self._color_palette is None:
+            self._color_palette = ColorPalettes.BROWN_1
+        return self._color_palette
+
+    @color_palette.setter
+    def color_palette(self, value: ColorStop):
+        self._color_palette = value
 
     @property
     def bounding_box(self) -> Dict[str, float]:

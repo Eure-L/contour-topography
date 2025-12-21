@@ -2,7 +2,7 @@ from typing import List
 
 import numpy as np
 
-from utils.colors import BROWN_1
+from utils.color_stop import ColorStop
 
 
 def altitude_to_gray(altitude, min_alt, max_alt):
@@ -22,13 +22,13 @@ def altitude_to_gray(altitude, min_alt, max_alt):
     return gray
 
 
-def altitude_to_rgb(altitude, min_alt, max_alt, stops: List[tuple[float, np.ndarray]] = None):
+def altitude_to_rgb(altitude, min_alt, max_alt, color_palette: ColorStop):
     """
     Map a single altitude value to an RGB color using linear interpolation.
     :param altitude: float, the altitude value
     :param min_alt: minimum altitude for normalization
     :param max_alt: maximum altitude for normalization
-    :param stops: Rgb stops for color interpolation example => [
+    :param color_palette: Rgb stops for color interpolation example => [
                                                             (1.0, np.array([255, 255, 255])),  # white (highest)
                                                             (0.6, np.array([139, 69, 19])),  # brown
                                                             (0.2, np.array([0, 255, 0])),  # green
@@ -39,18 +39,16 @@ def altitude_to_rgb(altitude, min_alt, max_alt, stops: List[tuple[float, np.ndar
     # Normalize to [0,1]
     t = np.clip((altitude - min_alt) / (max_alt - min_alt), 0, 1)
 
-    if not stops:
-        stops = BROWN_1
 
-    for i in range(len(stops) - 1):
-        t0, c0 = stops[i]
-        t1, c1 = stops[i + 1]
+    for i in range(len(color_palette.stops) - 1):
+        t0, c0 = color_palette.stops[i]
+        t1, c1 = color_palette.stops[i + 1]
         if t1 <= t <= t0:
             ratio = (t - t0) / (t1 - t0)
             r, g, b = (c0 + (c1 - c0) * ratio).astype(np.uint8)
             return int(r), int(g), int(b)
 
-    return tuple(stops[-1][1])
+    return tuple(color_palette.stops[-1][1])
 
 
 def altitudes_to_rgb_array(altitudes, min_alt=None, max_alt=None):
