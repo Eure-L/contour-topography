@@ -23,6 +23,8 @@ from data_models.color_stop import ColorStop
 from utils.colormapping import altitude_to_gray
 from defines.color_palettes import ColorPalettes
 from defines.road_weights import RoadsWeight
+from data_models.features import RoadFeature, WaterFeature, BaseFeature
+from utils.geo import pixel2coord, pixel2coord_scaled, geo_to_pixel
 
 logger = logging.getLogger('map')
 logger.setLevel(logging.DEBUG)
@@ -125,7 +127,8 @@ class Map:
     _borders_geojson: str = None
     _roads_geojson: str = None
     _borders_polygons: List = None
-    _roads: List = None
+    _roads: List[RoadFeature] = None
+    _water_features: List[WaterFeature] = None
     _ds: Dataset = None
     _gt: GeomTransformer = None
     _geojson_to_tif_transformer = None
@@ -161,7 +164,7 @@ class Map:
         if roads_geojson is not None:
             self._roads_geojson = roads_geojson
 
-    def pixel2coord(self, px: int, py: int) -> Tuple[float, float]:
+    def _pixel2coord(self, px: int, py: int) -> Tuple[float, float]:
         """
         Convert pixel coordinates to geographic coordinates (EPSG:4326).
 
@@ -173,11 +176,9 @@ class Map:
             Tuple of (longitude, latitude) coordinates
         """
         gt = self.gt
-        x = gt[0] + px * gt[1] + py * gt[2]
-        y = gt[3] + px * gt[4] + py * gt[5]
-        return (x, y)
+        return pixel2coord(gt, px, py)
 
-    def pixel2coord_scaled(self, px: int, py: int) -> Tuple[float, float]:
+    def _pixel2coord_scaled(self, px: int, py: int) -> Tuple[float, float]:
         """
         Convert pixel coordinates to pseudo-metric coordinates with latitude scaling.
 
@@ -187,11 +188,8 @@ class Map:
 
         Returns:
                     Tuple of (scaled longitude, scaled latitude) coordinates
-    """
-        gt = self.gt
-        x = gt[0] + px * gt[1] + py * gt[2]
-        y = gt[3] + px * gt[4] + py * gt[5]
-        y *= self.lat_scale
+        """
+        x, y = pixel2coord_scaled(self.gt, px, py, self.lat_scale)
         return x, y
 
     def show_colour_picture(self):
@@ -212,9 +210,11 @@ class Map:
         Returns:
             Elevation value in meters, or None if coordinates are out of bounds
         """
-        px, py = self.geo_to_pixel(lon, lat)
+        px, py = self._geo_to_pixel(lon, lat)
+
         if 0 <= px < self.width and 0 <= py < self.height:
             return float(self.grayscale_picture[py, px])
+
         return None
 
     def line_in_elevation(self, line: Union[LineString, BaseGeometry], level_range: Tuple[float, float]) -> bool:
@@ -229,9 +229,20 @@ class Map:
             True if any part of the line is within elevation range, False otherwise
         """
         min_alt, max_alt = level_range
-        coords = list(line.coords)
 
-        for (lon, lat) in coords:
+        # Handle different geometry types properly
+        if isinstance(line, LineString):
+            coords = list(line.coords)
+        elif hasattr(line, 'geoms'):  # MultiLineString or similar
+            # Check all segments
+            for segment in line.geoms:
+                if self.line_in_elevation(segment, level_range):
+                    return True
+            return False
+        else:
+            return False
+
+        for lon, lat in coords:
             elev = self.elevation_at(lon, lat)
             inside = (elev is not None and min_alt <= elev < max_alt)
             if inside:
@@ -427,7 +438,7 @@ class Map:
 
         return (inside.astype(np.uint8) * 255)
 
-    def geo_to_pixel(self, lon: float, lat: float) -> Tuple[int, int]:
+    def _geo_to_pixel(self, lon: float, lat: float) -> Tuple[int, int]:
         """
         Convert geographic coordinates to pixel coordinates.
 
@@ -439,11 +450,7 @@ class Map:
             Tuple of (pixel_x, pixel_y) coordinates
         """
 
-        gt = self.gt
-
-        px = (lon - gt[0]) / gt[1]
-        py = (lat - gt[3]) / gt[5]
-
+        px, py = geo_to_pixel(self.gt, lon, lat)
         return int(px), int(py)
 
     def line_to_svg_path(self, line: Union[LineString, BaseGeometry]) -> str:
@@ -459,48 +466,12 @@ class Map:
 
         parts = []
         for lon, lat in line.coords:
-            px, py = self.geo_to_pixel(lon, lat)
+            px, py = self._geo_to_pixel(lon, lat)
             parts.append(f"{px},{py}")
         d = f"M {' L '.join(parts)}"
         d = scale_path_y(d, self.lat_scale)
+
         return d
-
-    def road_to_svg_paths(self, feature: Dict) -> List[str]:
-        """
-        Convert GeoJSON road feature to SVG path strings.
-
-        Args:
-            feature: GeoJSON feature dictionary
-
-        Returns:
-            List of SVG path data strings
-        """
-
-        geom = shape(feature["geometry"])
-        paths = []
-
-        if geom.geom_type == "LineString":
-            lines = [geom]
-        elif geom.geom_type == "MultiLineString":
-            lines = list(geom.geoms)
-        else:
-            return paths
-
-        for line in lines:
-            path_parts = []
-            for lon, lat in line.coords:
-                px, py = self.geo_to_pixel(lon, lat)
-
-                if px < -10 or py < -10 or px > self.width + 10 or py > self.height + 10:
-                    continue
-
-                path_parts.append(f"{px},{py}")
-
-            if len(path_parts) > 1:
-                d = "M " + " L ".join(path_parts)
-                paths.append(d)
-
-        return paths
 
     def compute_road_layers(self):
         """
@@ -509,7 +480,6 @@ class Map:
         Populates self._base_road_layers with road segments that fall within
         each elevation layer's range.
         """
-
         self._base_road_layers = {lr: [] for lr in self._base_layers.keys()}
         level_ranges = list(self._base_layers.keys())
         next_level_ranges = level_ranges[1:]
@@ -519,24 +489,13 @@ class Map:
             start, end = level_range
             nex_start, nex_end = next_level_ranges[idx]
 
-            for feature in self.roads:
-
-                hierarchy = int(feature['properties']['HIERARCHY_ID'], 16)
-                if hierarchy > self.road_level:
+            for road in self.roads:
+                if road.hierarchy > self.road_level:
                     continue
 
-                geom = shape(feature["geometry"])
-                if geom.geom_type == "LineString":
-                    lines = [geom]
-                elif geom.geom_type == "MultiLineString":
-                    lines = list(geom.geoms)
-                else:
-                    continue
-
-                for line in lines:
-                    if self.line_in_elevation(line, (start, nex_start)):
-                        svg_path = self.line_to_svg_path(line)
-                        self._base_road_layers[level_range].append((hierarchy, svg_path))
+                if self.line_in_elevation(road.geometry, (start, nex_start)):
+                    for svg_path in road.paths:
+                        self._base_road_layers[level_range].append((road.hierarchy, svg_path))
 
     def compute_base_layer(self, level_range: Tuple[Union[float, int], Union[float, int]]):
         """
@@ -622,7 +581,7 @@ class Map:
         return self._borders_polygons
 
     @property
-    def roads(self):
+    def roads(self) -> List[RoadFeature]:
         if self._roads is None:
             self._roads = []
             if self._roads_geojson is None:
@@ -630,7 +589,10 @@ class Map:
 
             with open(self._roads_geojson, 'r') as f:
                 geojson = json.load(f)
-            self._roads = geojson['features']
+
+            for feature in geojson['features']:
+                road = RoadFeature(feature, gt=self.gt, lat_scale=self.lat_scale, lon_scale=1)
+                self._roads.append(road)
 
         return self._roads
 
@@ -728,11 +690,11 @@ class Map:
 
         # Pixel to geo coordinates
         corners = {
-            "upper_left": self.pixel2coord(0, 0),
-            "upper_right": self.pixel2coord(xsize, 0),
-            "lower_left": self.pixel2coord(0, ysize),
-            "lower_right": self.pixel2coord(xsize, ysize),
-            "center": self.pixel2coord(xsize // 2, ysize // 2)
+            "upper_left": self._pixel2coord(0, 0),
+            "upper_right": self._pixel2coord(xsize, 0),
+            "lower_left": self._pixel2coord(0, ysize),
+            "lower_right": self._pixel2coord(xsize, ysize),
+            "center": self._pixel2coord(xsize // 2, ysize // 2)
         }
 
         return corners
@@ -747,12 +709,12 @@ class Map:
         return scale
 
     def debug_scaling(self):
-        px1, py1 = self.geo_to_pixel(
+        px1, py1 = self._geo_to_pixel(
             self.corners["center"][0],
             self.corners["center"][1]
         )
 
-        px2, py2 = self.geo_to_pixel(
+        px2, py2 = self._geo_to_pixel(
             self.corners["center"][0],
             self.corners["center"][1] + 0.01
         )
