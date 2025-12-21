@@ -1,6 +1,7 @@
 import json
 import math
 import os
+from math import floor
 from xml.etree import ElementTree as ET
 from typing import Dict, Tuple, Union, List
 
@@ -28,6 +29,9 @@ from utils.roads_weights import RoadsWeight
 logger = logging.getLogger('map')
 logger.setLevel(logging.DEBUG)
 
+class A3:
+    width = "297mm"
+    height = "420mm"
 
 def scale_path_y(path: str, lat_scale: float) -> str:
     # "M x1,y1 L x2,y2 ..." → scale all y coordinates
@@ -36,7 +40,7 @@ def scale_path_y(path: str, lat_scale: float) -> str:
     for part in parts:
         if ',' in part:
             x, y = part.split(',')
-            new_parts.append(f"{x},{float(y) * lat_scale}")
+            new_parts.append(f"{x},{int(float(y) * lat_scale)}")
         else:
             new_parts.append(part)
     return " ".join(new_parts)
@@ -216,9 +220,12 @@ class Map:
     def save_map_as_svgs(self, contours, width, height, filename, fill: bool,
                          color="black", stroke_width_mm: float = 1):
         """Save contours as SVG. Coordinates already scaled in geo_to_pixel()."""
+
+        stroke_width_mm = round(stroke_width_mm, 1)
+
         with open(filename, 'w') as f:
             f.write(f'<svg xmlns="http://www.w3.org/2000/svg" '
-                    f'width="{width}" height="{height}" viewBox="0 0 {width} {height*self.lat_scale}">\n')
+                    f'width="{A3.width}" height="{A3.height}" viewBox="0 0 {width} {height*self.lat_scale}">\n')
             for contour in contours:
                 path_data = "M " + " L ".join(
                     f"{int(x)},{int(y)}" for x, y in contour[:, 0, :]
@@ -230,11 +237,12 @@ class Map:
             f.write('</svg>')
 
     def save_roads_svg(self, filename):
-        width, height = self.width, self.height
+
+        width, height = self.width, self.height  * self.lat_scale
 
         with open(filename, "w") as f:
             f.write(f'<svg xmlns="http://www.w3.org/2000/svg" '
-                    f'width="{width}" height="{height}" viewBox="0 0 {width} {height * self.lat_scale}">\n')
+                    f'width="{A3.width}" height="{A3.height}" viewBox="0 0 {width} {height}">\n')
 
             for d in self._road_layer:
                 f.write(f'  <path stroke="black" fill="none" stroke-width="1mm" d="{d}"/>\n')
@@ -251,6 +259,7 @@ class Map:
         for road in road_paths:
             hierarchy, d = road
             thickness = self.road_scaling.interpolate(hierarchy)
+            thickness = round(thickness,1)
             path = ET.SubElement(root, "ns0:path", stroke="black", fill="none", **{"stroke-width": f"{thickness}mm"},
                                  d=d)
             path.tail = "\n"
@@ -261,14 +270,13 @@ class Map:
         """
         Saves all computed layers to SVGs or a single SVG.
 
-        :param for_cut:     Wether its for CNC cutting
-        :param save_path:   Dst path
-        :param combined:    Wether to combine them all SVGs
-        :return:
+        :param for_cut:     Whether it's for CNC cutting
+        :param save_path:   Destination path
+        :param combined:    Whether to combine all layers into a single SVG
         """
-
         saved_layers = []
 
+        # Save each layer as an individual SVG
         for level_range, contour in self._base_layers.items():
             start, top = level_range
             start, top = int(start), int(top)
@@ -276,31 +284,43 @@ class Map:
             saved_layers.append(file)
 
             self._save_layer_svg(contour, (start, top), file, for_cut)
-            layer_roads = self._base_road_layers[level_range]
+            layer_roads = self._base_road_layers.get(level_range, [])
             if layer_roads:
                 self.append_roads_to_svg(file, layer_roads)
 
-        if self.show_roads:
-            road_svg = os.path.join(save_path, f"{self.name}_roads.svg")
-            self.save_roads_svg(road_svg)
-            saved_layers.append(road_svg)
+        # # Save road-only layer if applicable
+        # if self.show_roads:
+        #     road_svg = os.path.join(save_path, f"{self.name}_roads.svg")
+        #     self.save_roads_svg(road_svg)
+        #     saved_layers.append(road_svg)
 
-        if combined:
-            first_layer = saved_layers[0]
-            first_svg = st.fromfile(first_layer)
-            for next_layer in saved_layers[1:]:
-                next_svg = st.fromfile(next_layer)
-                first_svg.append(next_svg)
+        # Combine layers into a single SVG if requested
+        if combined and saved_layers:
+            # Create root SVG element with correct A3 size and viewBox
+            combined_svg = ET.Element(
+                "svg",
+                xmlns="http://www.w3.org/2000/svg",
+                width=A3.width,
+                height=A3.height,
+                viewBox=f"0 0 {self.width} {self.height}"
+            )
 
-            # Fix the combined SVG size to account for lat_scale
-            scaled_height = int(self.height * self.lat_scale)
-            first_svg.root.set("width", str(self.width))
-            first_svg.root.set("height", str(scaled_height))
-            first_svg.root.set("viewBox", f"0 0 {self.width} {scaled_height}")
+            for layer_file in saved_layers:
+                tree = ET.parse(layer_file)
+                root = tree.getroot()
 
-            output_file = os.path.join(save_path, self.name + '.svg')
-            logger.log(logging.INFO, f"Combined layer => {output_file}")
-            first_svg.save(output_file)
+                # Append all <g> elements (ignoring the root SVG's viewBox/width/height)
+                for g in root.findall(".//{http://www.w3.org/2000/svg}g"):
+                    combined_svg.append(g)
+
+                # Append direct <path> elements if roads are stored outside <g>
+                for path in root.findall(".//{http://www.w3.org/2000/svg}path"):
+                    combined_svg.append(path)
+
+            # Save combined SVG
+            output_file = os.path.join(save_path, f"{self.name}.svg")
+            ET.ElementTree(combined_svg).write(output_file, encoding="utf-8", xml_declaration=True)
+            logger.info(f"Combined SVG saved to {output_file}")
 
     def get_border_mask(self):
         """
