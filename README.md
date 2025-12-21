@@ -8,20 +8,21 @@ Requires a geotiff file containing altitudes encoded as grayscales to create a p
 
 
 ## Usages
-```python
-from src.map import Map
-from utils.roads_weights import RoadsWeight
 
-tif_data =      # path to tif file
+```python
+from data_models.map import Map
+from data_models.roads_weights import RoadsWeight
+
+tif_data =  # path to tif file
 borders_data =  # path to Geojson borders file
-roads_data =    # path to roads geojson file
-save_path =     # out path
+roads_data =  # path to roads geojson file
+save_path =  # out path
 
 contour_map = Map(tif_file=tif_data, borders_geojson=border_data, roads_geojson=roads_data)
 contour_map.road_level = 0x8B
 contour_map.road_scaling = RoadsWeight.RANKING_1
 
-contour_map.compute_all_layers(level_steps=list(range(556,2000,100)))
+contour_map.compute_all_layers(level_steps=list(range(556, 2000, 100)))
 contour_map.save_layers(save_path=dst, combined=True, for_cut=False)
 ```
 

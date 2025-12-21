@@ -19,10 +19,10 @@ from shapely.geometry.multipolygon import MultiPolygon
 from shapely.ops import transform as shp_transform
 
 from src.utils.colormapping import altitudes_to_rgb_array, altitude_to_rgb
-from utils.color_stop import ColorStop
+from data_models.color_stop import ColorStop
 from utils.colormapping import altitude_to_gray
-from utils.colors import ColorPalettes
-from utils.roads_weights import RoadsWeight
+from defines.color_palettes import ColorPalettes
+from defines.road_weights import RoadsWeight
 
 logger = logging.getLogger('map')
 logger.setLevel(logging.DEBUG)

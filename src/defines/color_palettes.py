@@ -1,5 +1,5 @@
 from pydantic_extra_types.color import Color
-from utils.color_stop import ColorStop
+from data_models.color_stop import ColorStop
 
 class ColorPalettes:
     """

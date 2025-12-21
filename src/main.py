@@ -1,9 +1,10 @@
 import os.path
 from argparse import ArgumentError
 
-from src.map import Map
+from data_models.map import Map
+from defines.layer_ranges import LayerRanges
 from src.utils.parser import argv_parser
-from utils.roads_weights import RoadsWeight
+from defines.road_weights import RoadsWeight
 
 
 def main():
@@ -19,9 +20,8 @@ def main():
 
     if not os.path.exists(out_data):
         os.makedirs(out_data)
-
     try:
-        steps = [int(step) for step in level_steps.split(';')]
+        steps = LayerRanges.linear_15 if not level_steps else [int(step) for step in level_steps.split(';')]
     except Exception as e:
         raise ArgumentError("Could not parse Steps list, must be a list of integers separated by ';'.\nExample: 0;50;150;1000;1500 ")
 

@@ -1,8 +1,6 @@
-from typing import List
-
 import numpy as np
 
-from utils.color_stop import ColorStop
+from data_models.color_stop import ColorStop
 
 
 def altitude_to_gray(altitude, min_alt, max_alt):
