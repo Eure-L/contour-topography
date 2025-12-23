@@ -2,6 +2,7 @@ import json
 import logging
 import math
 import os
+import time
 from typing import Dict, Tuple, Union, List
 from xml.etree import ElementTree as ET
 
@@ -27,7 +28,7 @@ from defines.water_bodies import WaterBodyType
 from src.utils.colormapping import altitudes_to_rgb_array, altitude_to_rgb
 from utils.colormapping import altitude_to_gray
 from utils.geo import pixel2coord, geo_to_pixel, scale_path_y
-from utils.inkscape import parallel_convert_strokes_to_paths
+from utils.inkscape import parallel_convert_strokes_to_paths, batch_rotate_svg
 
 from utils.svg import convert_strokes_to_paths_in_svg, parallel_convert_strokes_to_paths_in_svg
 
@@ -77,6 +78,10 @@ class Map:
     road_scaling = RoadsWeight.RANKING_1
     canevas = A3
     for_cut = False
+
+    # Only for display purposes, CNC Machine sees it as a vector
+    cut_width_mm = 1
+    rotate = 0
 
     filtered_water_bodies : List[WaterBodyType] = []
     size_filtered_water_bodies: List[WaterBodyType]  = []
@@ -183,24 +188,20 @@ class Map:
         if not self.for_cut:
             r, g, b = altitude_to_rgb(layer_range[0], min_alt, max_alt, self.color_palette)
             svg_color = f"rgb({r},{g},{b})"
-            stroke_width_mm = 0.01
             self.save_map_as_svgs(contour, save_file,
                                   fill_color=svg_color,
                                   stroke_color=svg_color if not self.show_contour_strokes else "black",
-                                  fill=True,
-                                  stroke_width_mm=stroke_width_mm)
+                                  fill=True)
         else:
-            stroke_width_mm = 1
+
             self.save_map_as_svgs(contour, save_file,
                                   fill_color="red",
                                   stroke_color="black" if self.show_contour_strokes else "red",
-                                  fill=False,
-                                  stroke_width_mm=stroke_width_mm)
+                                  fill=False)
 
     def save_map_as_svgs(self, contours: np.ndarray, filename: str, fill: bool,
                          fill_color: str = "black",
-                         stroke_color: str = "black",
-                         stroke_width_mm: float = 1):
+                         stroke_color: str = "black"):
         """
         Save contours as SVG file with proper scaling and viewbox.
 
@@ -213,7 +214,7 @@ class Map:
             stroke_color: Color of the stroke
         """
 
-        stroke_width_mm = round(stroke_width_mm, 1)
+        stroke_width_mm = round(self.cut_width_mm, 1)
         height, width = self.grayscale_picture.shape
         viewbox_height = int(height * self.lat_scale)
         viewbox_width = width
@@ -229,7 +230,7 @@ class Map:
                 path_data += " Z"
                 fill_str = f'fill="{fill_color}"' if fill else f'fill="none"'
                 f.write(
-                    f'  <path stroke="{stroke_color}" {fill_str} stroke-width="{stroke_width_mm}mm" d="{path_data}" />\n')
+                    f'  <path type="cut" stroke="{stroke_color}" {fill_str} stroke-width="{stroke_width_mm}mm" d="{path_data}" />\n')
             f.write('</svg>')
 
     def append_roads_to_svg(self, svg_file: str, road_paths: List[Tuple[int, str]]):
@@ -377,9 +378,9 @@ class Map:
                     combined_svg.append(path)
 
             # Save combined SVG
-            output_file = os.path.join(save_path, f"{self.name}.svg")
-            ET.ElementTree(combined_svg).write(output_file, encoding="utf-8", xml_declaration=True)
-            logger.info(f"Combined SVG saved to {output_file}")
+            merged_svg = os.path.join(save_path, f"{self.name}.svg")
+            ET.ElementTree(combined_svg).write(merged_svg, encoding="utf-8", xml_declaration=True)
+            logger.info(f"Combined SVG saved to {merged_svg}")
 
             # Remove intermediary layers if requested
             if remove_inters:
@@ -389,6 +390,12 @@ class Map:
                         logger.info(f"Removed intermediary layer: {layer_file}")
                     except OSError as e:
                         logger.error(f"Error removing file {layer_file}: {e}")
+                saved_layers = []
+            saved_layers.append(merged_svg)
+
+        # rotate SVGs if needed for CNC machine
+        if self.rotate != 0:
+            batch_rotate_svg(saved_layers, saved_layers, self.rotate)
 
     def compute_all_layers(self, level_steps: List[int]):
         """
@@ -559,7 +566,10 @@ class Map:
                 if wb in self.filtered_water_bodies:
                     continue
                 if wb in self.size_filtered_water_bodies:
-                    if len(feature["geometry"]) < self.waters_min_size:
+                    s = len(feature["geometry"]['coordinates'][0])
+                    id = feature["properties"]['OBJECTID']
+                    wbname = feature["properties"]['WATER_BODY_NAME']
+                    if s < self.waters_min_size:
                         continue
 
                 feat = WaterFeature(feature, gt=self.gt, lat_scale=self.lat_scale, lon_scale=1)
