@@ -2,8 +2,11 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List
+from xml.etree import ElementTree as ET
+
 
 
 def convert_strokes_to_paths(input_file: str, select_attr: str = 'all') -> bool:
@@ -99,7 +102,7 @@ def parallel_convert_strokes_to_paths(files: List[str], select_attr: str = 'all'
 
 def rotate_svg(input_file: str, output_file: str, angle: int) -> bool:
     """
-    Rotate an SVG file by a specified angle using Inkscape.
+    Rotate an SVG file by a specified angle using Inkscape and update the viewport.
 
     Args:
         input_file: Path to the input SVG file
@@ -128,8 +131,36 @@ def rotate_svg(input_file: str, output_file: str, angle: int) -> bool:
         cmd = [
             '/usr/bin/inkscape',
             f'--actions',
-            f'"select-all;transform-rotate:{angle};export-filename:{input_file};export-do"', f'{input_file}'
+            f'"select-all;transform-rotate:{angle};export-filename:{input_file};fit-page-to-drawing;export-do"', f'{input_file}'
         ]
+
+        cmd_str = ' '.join(cmd)
+        result = subprocess.run(cmd_str,
+                                check=True,
+                                shell=True,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
+
+        # Resizes the canevas/Viewport to match the rotation
+        tree = ET.parse(input_file)
+        root = tree.getroot()
+
+        x0, y0, vb_w, vb_h = root.get('viewBox', '0 0 0 0').split()
+        width = root.get('width', '0')
+        height = root.get('height', '0')
+
+        # Update viewBox
+        root.set('viewBox', f'0 0 {vb_h} {vb_w}')
+        root.set('width', height)
+        root.set('height', width)
+        tree.write(input_file, encoding="utf-8", xml_declaration=True)
+        time.sleep(0.5)
+        cmd = [
+            '/usr/bin/inkscape',
+            f'--actions',
+            f'"select-all;export-filename:{input_file};fit-page-to-drawing;export-do"', f'{input_file}'
+        ]
+
 
         cmd_str = ' '.join(cmd)
         result = subprocess.run(cmd_str,
@@ -149,7 +180,9 @@ def rotate_svg(input_file: str, output_file: str, angle: int) -> bool:
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return False
-
+    except Exception as e:
+        print(f"Error processing SVG: {str(e)}", file=sys.stderr)
+        return False
 
 def batch_rotate_svg(files: List[str], output_files: List[str], angle: int) -> List[bool]:
     """
