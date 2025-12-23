@@ -22,7 +22,7 @@ def main():
     steps = LayerRanges.linear_15
 
     contour_map = Map(tif_file=tif_data, borders_geojson=border_data, roads_geojson=roads_data)
-    contour_map.road_level = 0x8A
+    contour_map.road_detail = 0x8A
     contour_map.road_scaling = RoadsWeight.RANKING_1
     contour_map.compute_all_layers(level_steps=steps)
     contour_map.show_roads = False

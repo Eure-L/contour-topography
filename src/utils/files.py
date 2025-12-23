@@ -1,3 +1,8 @@
+import subprocess
+import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List
 from xml.etree import ElementTree as ET
 
 
@@ -35,3 +40,4 @@ def merge_svgs(svg_files, output_file, width=None, height=None):
     tree = ET.ElementTree(merged_svg)
     tree.write(output_file, encoding="utf-8", xml_declaration=True)
     print(f"Merged SVG saved to {output_file}")
+

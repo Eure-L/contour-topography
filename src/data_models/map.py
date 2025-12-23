@@ -21,10 +21,15 @@ from data_models.color_stop import ColorStop
 from data_models.features import RoadFeature, WaterFeature
 from defines.canvas_sizes import A3
 from defines.color_palettes import ColorPalettes
+from defines.road_detail import RoadDetail
 from defines.road_weights import RoadsWeight
+from defines.water_bodies import WaterBodyType
 from src.utils.colormapping import altitudes_to_rgb_array, altitude_to_rgb
 from utils.colormapping import altitude_to_gray
 from utils.geo import pixel2coord, geo_to_pixel, scale_path_y
+from utils.inkscape import parallel_convert_strokes_to_paths
+
+from utils.svg import convert_strokes_to_paths_in_svg, parallel_convert_strokes_to_paths_in_svg
 
 logger = logging.getLogger('map')
 logger.setLevel(logging.DEBUG)
@@ -68,9 +73,14 @@ class Map:
     show_contour_strokes = False
     show_roads = True
     show_water_surfaces = True
-    road_level = 0x8A
+    road_detail: RoadDetail = RoadDetail.MEDIUM
     road_scaling = RoadsWeight.RANKING_1
     canevas = A3
+    for_cut = False
+
+    filtered_water_bodies : List[WaterBodyType] = []
+    size_filtered_water_bodies: List[WaterBodyType]  = []
+    waters_min_size = 500
 
     def __init__(self, tif_file: str,
                  borders_geojson: str = None,
@@ -156,9 +166,8 @@ class Map:
         else:
             return False
 
-
     def save_layer_as_svg(self, contour: np.ndarray, layer_range: Tuple[Union[int, float], Union[int, float]],
-                          save_file: str, for_cut: bool):
+                          save_file: str):
         """
         Save a contour layer as an SVG file.
 
@@ -171,7 +180,7 @@ class Map:
         min_alt = self.grayscale_picture.min()
         max_alt = self.grayscale_picture.max()
 
-        if not for_cut:
+        if not self.for_cut:
             r, g, b = altitude_to_rgb(layer_range[0], min_alt, max_alt, self.color_palette)
             svg_color = f"rgb({r},{g},{b})"
             stroke_width_mm = 0.01
@@ -181,12 +190,10 @@ class Map:
                                   fill=True,
                                   stroke_width_mm=stroke_width_mm)
         else:
-            gray = 255 - altitude_to_gray(layer_range[0], min_alt, max_alt)
-            svg_color = f"rgb({gray},{gray},{gray})"
             stroke_width_mm = 1
             self.save_map_as_svgs(contour, save_file,
                                   fill_color="red",
-                                  stroke_color=svg_color if not self.show_contour_strokes else "black",
+                                  stroke_color="black" if self.show_contour_strokes else "red",
                                   fill=False,
                                   stroke_width_mm=stroke_width_mm)
 
@@ -241,9 +248,11 @@ class Map:
             hierarchy, d = road
             thickness = self.road_scaling.interpolate(hierarchy)
             thickness = round(thickness, 1)
-            path = ET.SubElement(root, "ns0:path", stroke="black", fill="none", **{"stroke-width": f"{thickness}mm"},
+
+            path = ET.SubElement(root, "ns0:path", type="road", stroke="black", fill="none",
+                                 **{"stroke-width": f"{thickness}mm"},
                                  d=d)
-            path.tail = "\n"
+            path.tail = "\n  "
 
         tree.write(svg_file, encoding="utf-8", xml_declaration=True)
 
@@ -258,10 +267,12 @@ class Map:
         tree = ET.parse(svg_file)
         root = tree.getroot()
 
+        fill = "blue" if self.for_cut else "#ADD8E6"
+
         for d in water_paths:
-            path = ET.SubElement(root, "ns0:path", stroke="black", fill="#ADD8E6",
+            path = ET.SubElement(root, "ns0:path", type="water", stroke="none", fill=fill,
                                  **{"stroke-width": "0.1mm"}, d=d)
-            path.tail = "\n"
+            path.tail = "\n  "
 
         tree.write(svg_file, encoding="utf-8", xml_declaration=True)
 
@@ -297,7 +308,7 @@ class Map:
 
         return (inside.astype(np.uint8) * 255)
 
-    def save_all_layers(self, save_path: str, combined: bool, for_cut: bool = False, remove_inters=False):
+    def save_all_layers(self, save_path: str, combined: bool, remove_inters=False):
         """
         Save all elevation layers as SVG files.
 
@@ -317,7 +328,7 @@ class Map:
             start, top = int(start), int(top)
             file = os.path.join(save_path, f"{self.name}_{start}-{top}.svg")
             saved_layers.append(file)
-            self.save_layer_as_svg(contour, (start, top), file, for_cut)
+            self.save_layer_as_svg(contour, (start, top), file)
 
             if self.show_roads:
                 layer_roads = self._road_layers.get(level_range, [])
@@ -328,6 +339,17 @@ class Map:
                 layer_waters = self._water_layers.get(level_range, [])
                 if layer_waters:
                     self.append_water_to_svg(file, layer_waters)
+
+        USE_INKSCAPE = True
+        # Option 1
+        # converts all road strokes to path using inkscape
+        if self.for_cut and USE_INKSCAPE:
+            parallel_convert_strokes_to_paths(saved_layers, '[type="road"]', max_workers=12)
+
+        # Option 2
+        # Convert strokes to paths directly in Python
+        elif self.for_cut:
+            parallel_convert_strokes_to_paths_in_svg(saved_layers, '[type="road"]', max_workers=1)
 
         # Combine layers into a single SVG if requested
         if combined and saved_layers:
@@ -433,7 +455,7 @@ class Map:
             nex_start, nex_end = next_level_ranges[idx]
 
             for road in self.roads:
-                if road.hierarchy > self.road_level:
+                if road.hierarchy > self.road_detail.value:
                     continue
 
                 if self.feature_in_elevation(road.geometry, (start, nex_start)):
@@ -529,6 +551,17 @@ class Map:
                 geojson = json.load(f)
 
             for feature in geojson['features']:
+
+                # Aplies filters on water bodies to include (lots of swamps and ponds..)
+                wb = feature["properties"]['WATER_BODY_TYPE']
+                wb = WaterBodyType(wb)
+
+                if wb in self.filtered_water_bodies:
+                    continue
+                if wb in self.size_filtered_water_bodies:
+                    if len(feature["geometry"]) < self.waters_min_size:
+                        continue
+
                 feat = WaterFeature(feature, gt=self.gt, lat_scale=self.lat_scale, lon_scale=1)
                 self._water_features.append(feat)
 

@@ -18,7 +18,7 @@ def main():
         os.makedirs(out_data)
 
     contour_map = Map(tif_file=tif_data, borders_geojson=border_data, roads_geojson=roads_data)
-    contour_map.road_level = 0x8A
+    contour_map.road_detail = 0x8A
     contour_map.road_scaling = RoadsWeight.RANKING_1
     contour_map.color_palette = ColorPalettes.BROWN_1
     contour_map.show_contour_strokes = True

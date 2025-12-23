@@ -19,7 +19,7 @@ roads_data =  # path to roads geojson file
 save_path =  # out path
 
 contour_map = Map(tif_file=tif_data, borders_geojson=border_data, roads_geojson=roads_data)
-contour_map.road_level = 0x8B
+contour_map.road_detail = 0x8B
 contour_map.road_scaling = RoadsWeight.RANKING_1
 
 contour_map.compute_all_layers(level_steps=list(range(556, 2000, 100)))

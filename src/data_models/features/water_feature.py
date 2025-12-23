@@ -1,4 +1,6 @@
-from typing import List
+from typing import List, Dict
+
+from osgeo.ogr import GeomTransformer
 
 from data_models.features.base_feature import BaseFeature
 from utils.geo import geo_to_pixel

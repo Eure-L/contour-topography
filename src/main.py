@@ -3,6 +3,8 @@ from argparse import ArgumentError
 
 from data_models.map import Map
 from defines.layer_ranges import LayerRanges
+from defines.road_detail import RoadDetail
+from defines.water_bodies import WaterBodyType as WB
 from src.utils.parser import argv_parser
 from defines.road_weights import RoadsWeight
 
@@ -24,23 +26,29 @@ def main():
     try:
         steps = LayerRanges.linear_15 if not level_steps else [int(step) for step in level_steps.split(';')]
     except Exception as e:
-        raise ArgumentError("Could not parse Steps list, must be a list of integers separated by ';'.\nExample: 0;50;150;1000;1500 ")
+        raise ArgumentError(
+            "Could not parse Steps list, must be a list of integers separated by ';'.\nExample: 0;50;150;1000;1500 ")
 
     # instantiate the MAP object
-    contour_map = Map(tif_file=tif_data, borders_geojson=border_geojson, roads_geojson=roads_geojson, waters_geojson=waters_geojson)
-    contour_map.road_level = 0x8B
-    contour_map.road_scaling = RoadsWeight.RANKING_1
-    contour_map.show_roads = True
-    contour_map.show_contour_strokes = True
-    contour_map.show_water_surfaces = True
+    map = Map(tif_file=tif_data, borders_geojson=border_geojson, roads_geojson=roads_geojson,
+              waters_geojson=waters_geojson)
+
+    # Configure parameters
+    map.road_detail = RoadDetail.LOW
+    map.road_scaling = RoadsWeight.RANKING_1
+    map.show_roads = True
+    map.show_water_surfaces = True
+    map.for_cut = True
+    map.show_contour_strokes = False
+    map.filtered_water_bodies = [WB.RIVER]
+    map.size_filtered_water_bodies = [WB.CREEK, WB.SWAMP, WB.POND, WB.DAM]
+    map.waters_min_size = 250
 
     # Compute its layers
-    contour_map.compute_all_layers(level_steps=LayerRanges.third_13)
+    map.compute_all_layers(level_steps=LayerRanges.third_13_bis)
 
     # Save its layeres
-    contour_map.save_all_layers(save_path=out_data, combined=combined, for_cut=for_cut)
-
-
+    map.save_all_layers(save_path=out_data, combined=combined)
 
 
 if __name__ == "__main__":
