@@ -35,7 +35,7 @@ def main():
 
     # Configure parameters
     map.cut_width_mm = 1
-    map.road_detail = RoadDetail.HIGH
+    map.road_detail = RoadDetail.LOW
     map.road_scaling = RoadsWeight.RANKING_1
     map.show_roads = True
     map.show_water_surfaces = True
@@ -47,7 +47,7 @@ def main():
     map.rotate = 270
 
     # Compute its layers
-    map.compute_all_layers(level_steps=LayerRanges.third_13_bis)
+    map.compute_all_layers(level_steps=LayerRanges.third_13_3)
 
     # Save its layeres
     map.save_all_layers(save_path=out_data, combined=combined)

@@ -158,9 +158,24 @@ def rotate_svg(input_file: str, output_file: str, angle: int) -> bool:
         cmd = [
             '/usr/bin/inkscape',
             f'--actions',
-            f'"select-all;export-filename:{input_file};fit-page-to-drawing;export-do"', f'{input_file}'
+            f'"select-all;export-filename:{input_file};selection-move-to-page-center;fit-page-to-drawing;export-do"', f'{input_file}'
         ]
 
+
+        cmd_str = ' '.join(cmd)
+        result = subprocess.run(cmd_str,
+                                check=True,
+                                shell=True,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
+
+        # Recenters Objects
+        # inkscape "--actions=select-all:all;selection-group;object-align:hcenter vcenter page;export-filename:foo.svg;export-do" canberra_400-1900.svg
+        cmd = [
+            '/usr/bin/inkscape',
+            f'--actions',
+            f'"select-all:all;selection-group;object-align:hcenter vcenter page;export-filename:{input_file};export-do"', f'{input_file}'
+        ]
 
         cmd_str = ' '.join(cmd)
         result = subprocess.run(cmd_str,

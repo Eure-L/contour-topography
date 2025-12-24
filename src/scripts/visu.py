@@ -34,23 +34,23 @@ def main():
               waters_geojson=waters_geojson)
 
     # Configure parameters
-    map.cut_width_mm = 1
-    map.road_detail = RoadDetail.LOW
+    map.cut_width_mm = 0.5
+    map.road_detail = RoadDetail.ULTRA
     map.road_scaling = RoadsWeight.RANKING_1
     map.show_roads = True
     map.show_water_surfaces = True
     map.for_cut = False
-    map.show_contour_strokes = True
+    map.show_contour_strokes = False
     map.filtered_water_bodies = [WB.DAM]
     map.size_filtered_water_bodies = [WB.CREEK, WB.POND]
     map.waters_min_size = 20
-    map.rotate = -90
+    map.rotate = 0
 
     # Compute its layers
-    map.compute_all_layers(level_steps=LayerRanges.third_13_bis)
+    map.compute_all_layers(level_steps=LayerRanges.third_13_3)
 
     # Save its layeres
-    map.save_all_layers(save_path=out_data, combined=combined)
+    map.save_all_layers(save_path=out_data, combined=combined, remove_inters=True)
 
 
 if __name__ == "__main__":
