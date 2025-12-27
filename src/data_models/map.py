@@ -2,7 +2,6 @@ import json
 import logging
 import math
 import os
-import time
 from typing import Dict, Tuple, Union, List
 from xml.etree import ElementTree as ET
 
@@ -28,10 +27,8 @@ from defines.road_weights import RoadsWeight
 from defines.water_bodies import WaterBodyType
 from src.utils.colormapping import altitudes_to_rgb_array, altitude_to_rgb
 from utils.colormapping import altitude_to_gray
-from utils.geo import pixel2coord, geo_to_pixel, scale_path_y
+from utils.geo import pixel2coord, geo_to_pixel, scale_path_y, elevation_at
 from utils.inkscape import parallel_convert_strokes_to_paths, batch_rotate_svg
-
-from utils.svg import convert_strokes_to_paths_in_svg, parallel_convert_strokes_to_paths_in_svg
 
 logger = logging.getLogger('map')
 logger.setLevel(logging.DEBUG)
@@ -56,10 +53,10 @@ class Map:
 
     # Data source files
     _tif_file: str = None
-    _borders_geojson: str = None
-    _roads_geojson: str = None
-    _waters_geojson: str = None
-    _line_features_geojsons: List[str] = None
+    _border_sources: List[str] = None
+    _road_sources: List[str] = None
+    _water_sources: List[str] = None
+    _line_sources: List[str] = None
 
     # Deserialized data
     _borders_polygons: List = None
@@ -115,28 +112,85 @@ class Map:
             name = os.path.split(tif_file)[1]
             self._name = ''.join(name.split('.')[:-1])
 
-        self._borders_geojson = borders_geojson
-        self._roads_geojson = roads_geojson
-        self._waters_geojson = waters_geojson
-        self._line_features_geojsons = line_features_geojsons
-
-    def elevation_at(self, lon: float, lat: float) -> Union[float, None]:
+    def add_border_features(self, file: str):
         """
-        Get elevation value at specific geographic coordinates.
-
-        Args:
-            lon: Longitude coordinate
-            lat: Latitude coordinate
-
-        Returns:
-            Elevation value in meters, or None if coordinates are out of bounds
+        Adds a given file to the map's borders sources list.
+        :param file: file containing border data (geojson)
+        :return:
         """
-        px, py = geo_to_pixel(self.gt, lon, lat)
+        if self._border_sources is None:
+            self._border_sources = []
+        self._border_sources.append(file)
 
-        if 0 <= px < self.width and 0 <= py < self.height:
-            return float(self.grayscale_picture[py, px])
+    def add_road_features(self, file: str):
+        """
+        Adds a given file to the map's roads sources list.
+        :param file: file containing roads data (geojson)
+        :return:
+        """
+        if self._road_sources is None:
+            self._road_sources = []
+        self._road_sources.append(file)
 
-        return None
+    def add_line_features(self, file: str):
+        """
+        Adds a given file to the map's generic lines sources list.
+        :param file: file containing lines data (geojson)
+        :return:
+        """
+        if self._line_sources is None:
+            self._line_sources = []
+        self._line_sources.append(file)
+
+    def add_water_surface_features(self, file: str):
+        """
+        Adds a given file to the map's water surfaces sources list.
+        :param file: file containing waters data (geojson)
+        :return:
+        """
+        if self._water_sources is None:
+            self._water_sources = []
+        self._water_sources.append(file)
+
+    def add_border_features_list(self, files: List[str]):
+        """
+        Adds a given file list to the map's borders sources list.
+        :param files: file list containing border data (geojson)
+        :return:
+        """
+
+        for file in files:
+            self.add_border_features(file)
+
+    def add_road_features_list(self, files: List[str]):
+        """
+        Adds a given file list to the map's roads sources list.
+        :param files: file list containing roads data (geojson)
+        :return:
+        """
+
+        for file in files:
+            self.add_road_features(file)
+
+    def add_line_features_list(self, files: List[str]):
+        """
+        Adds a given file list to the map's generic lines sources list.
+        :param files: file list containing lines data (geojson)
+        :return:
+        """
+
+        for file in files:
+            self.add_line_features(file)
+
+    def add_water_surface_features_list(self, files: List[str]):
+        """
+        Adds a given file list to the map's water surfaces sources list.
+        :param files: file list containing waters data (geojson)
+        :return:
+        """
+
+        for file in files:
+            self.add_water_surface_features(file)
 
     def feature_in_elevation(self, feature: Union[LineString, Polygon, BaseGeometry],
                              level_range: Tuple[float, float]) -> bool:
@@ -155,7 +209,7 @@ class Map:
         def check_coords(coords):
             """Helper function to check if any coordinate is within elevation range"""
             for lon, lat in coords:
-                elev = self.elevation_at(lon, lat)
+                elev = elevation_at(self, lon, lat)
                 if elev is not None and min_alt <= elev < max_alt:
                     return True
             return False
@@ -314,7 +368,7 @@ class Map:
 
         tree.write(svg_file, encoding="utf-8", xml_declaration=True)
 
-    def get_border_mask(self) -> np.ndarray:
+    def _get_border_mask(self) -> np.ndarray:
         """
         Create a mask where pixels inside borders are 255, outside are 0.
 
@@ -353,7 +407,6 @@ class Map:
         Args:
             save_path: Directory to save SVG files
             combined: Whether to combine all layers into one SVG
-            for_cut: Whether SVGs are for CNC cutting
             remove_inters: Whether to remove intermediary built layers after combining
         """
         saved_layers = []
@@ -561,7 +614,7 @@ class Map:
     @property
     def border_mask(self):
         if self._border_mask is None:
-            self._border_mask = self.get_border_mask()
+            self._border_mask = self._get_border_mask()
         return self._border_mask
 
     @property
@@ -569,22 +622,21 @@ class Map:
         if self._borders_polygons is None:
             self._borders_polygons = []
 
-            if self._borders_geojson is None:
+            if self._border_sources is None:
                 return self._borders_polygons
 
-            with open(self._borders_geojson, 'r') as f:
-                geojson = json.load(f)
-
-            scale = self.lat_scale
-
-            for feature in geojson['features']:
-                geom = shape(feature['geometry'])
-                # Scale latitude ONLY
-                geom = shp_transform(
-                    lambda lon, lat: (lon, lat * scale),
-                    geom
-                )
-                self._borders_polygons.append(geom)
+            for source_file in self._border_sources:
+                # Todo check source file type and handle it acordilngly
+                with open(source_file, 'r') as f:
+                    geojson = json.load(f)
+                for feature in geojson['features']:
+                    geom = shape(feature['geometry'])
+                    # Scale latitude ONLY
+                    geom = shp_transform(
+                        lambda lon, lat: (lon, lat * self.lat_scale),
+                        geom
+                    )
+                    self._borders_polygons.append(geom)
 
         return self._borders_polygons
 
@@ -592,15 +644,17 @@ class Map:
     def roads(self) -> List[RoadFeature]:
         if self._road_features is None:
             self._road_features = []
-            if self._roads_geojson is None:
+            if self._road_sources is None:
                 return self._road_features
 
-            with open(self._roads_geojson, 'r') as f:
-                geojson = json.load(f)
+            for source_file in self._road_sources:
+                # Todo check source file type and handle it acordilngly
+                with open(source_file, 'r') as f:
+                    geojson = json.load(f)
 
-            for feature in geojson['features']:
-                road = RoadFeature(feature, gt=self.gt, lat_scale=self.lat_scale, lon_scale=1)
-                self._road_features.append(road)
+                for feature in geojson['features']:
+                    road = RoadFeature(feature, gt=self.gt, lat_scale=self.lat_scale, lon_scale=1)
+                    self._road_features.append(road)
 
         return self._road_features
 
@@ -608,11 +662,12 @@ class Map:
     def line_features(self) -> List[LineFeature]:
         if self._line_features is None:
             self._line_features = []
-            if self._line_features_geojsons is None:
+            if self._line_sources is None:
                 return self._line_features
 
-            for line_features_geojson in self._line_features_geojsons:
-                with open(line_features_geojson, 'r') as f:
+            for source_file in self._line_sources:
+                # Todo check source file type and handle it acordilngly
+                with open(source_file, 'r') as f:
                     geojson = json.load(f)
 
                 for feature in geojson['features']:
@@ -625,29 +680,30 @@ class Map:
     def water_surfaces(self) -> List[WaterFeature]:
         if self._water_features is None:
             self._water_features = []
-            if self._waters_geojson is None:
+            if self._water_sources is None:
                 return self._water_features
 
-            with open(self._waters_geojson, 'r') as f:
-                geojson = json.load(f)
+            for source_file in self._water_sources:
+                # Todo check source file type and handle it acordilngly
+                with open(source_file, 'r') as f:
+                    geojson = json.load(f)
 
-            for feature in geojson['features']:
+                for feature in geojson['features']:
+                    # Aplies filters on water bodies to include (lots of swamps and ponds..)
+                    wb = feature["properties"]['WATER_BODY_TYPE']
+                    wb = WaterBodyType(wb)
 
-                # Aplies filters on water bodies to include (lots of swamps and ponds..)
-                wb = feature["properties"]['WATER_BODY_TYPE']
-                wb = WaterBodyType(wb)
-
-                if wb in self.filtered_water_bodies:
-                    continue
-                if wb in self.size_filtered_water_bodies:
-                    s = len(feature["geometry"]['coordinates'][0])
-                    id = feature["properties"]['OBJECTID']
-                    wbname = feature["properties"]['WATER_BODY_NAME']
-                    if s < self.waters_min_size:
+                    if wb in self.filtered_water_bodies:
                         continue
+                    if wb in self.size_filtered_water_bodies:
+                        s = len(feature["geometry"]['coordinates'][0])
+                        id = feature["properties"]['OBJECTID']
+                        wbname = feature["properties"]['WATER_BODY_NAME']
+                        if s < self.waters_min_size:
+                            continue
 
-                feat = WaterFeature(feature, gt=self.gt, lat_scale=self.lat_scale, lon_scale=1)
-                self._water_features.append(feat)
+                    feat = WaterFeature(feature, gt=self.gt, lat_scale=self.lat_scale, lon_scale=1)
+                    self._water_features.append(feat)
 
         return self._water_features
 
@@ -695,7 +751,7 @@ class Map:
         return self._gt
 
     @property
-    def corners(self) -> Dict[str, Tuple[float]]:
+    def corners(self) -> Dict[str, Tuple[float, float]]:
         if self._corners is None:
             self._corners = self._get_corners()
         return self._corners

@@ -1,5 +1,3 @@
-import os.path
-
 from data_models.map import Map
 from defines.layer_ranges import LayerRanges
 from defines.road_detail import RoadDetail
@@ -13,19 +11,18 @@ def main():
 
     out_data = args.output_dir
     tif_data = args.tif_file
-    border_geojson = args.borders_geojson
-    roads_geojson = args.roads_geojson
-    waters_geojson = args.ws_geojson
-    level_steps = args.level_steps
-    for_cut = args.for_cut
-    combined = args.combined
 
-    if not os.path.exists(out_data):
-        os.makedirs(out_data)
+    border_geojsons = args.borders_geojson.split(';')
+    roads_geojsons = args.roads_geojson.split(';')
+    waters_geojsons = args.ws_geojson.split(';')
+    lines_geojsons = args.line_features.split(';')
 
     # instantiate the MAP object
-    map = Map(tif_file=tif_data, borders_geojson=border_geojson, roads_geojson=roads_geojson,
-              waters_geojson=waters_geojson)
+    map = Map(tif_file=tif_data)
+    map.add_border_features_list(border_geojsons)
+    map.add_road_features_list(roads_geojsons)
+    map.add_water_surface_features_list(waters_geojsons)
+    map.add_line_features_list(lines_geojsons)
 
     # Configure parameters
     map.cut_width_mm = 0.5
