@@ -18,7 +18,8 @@ def main():
     roads_geojson = args.roads_geojson
     waters_geojson = args.ws_geojson
     level_steps = args.level_steps
-    for_cut = args.for_cut
+    _line_features = args.line_features
+    line_features_geojsons = _line_features.split(';')
     combined = args.combined
 
     if not os.path.exists(out_data):
@@ -31,7 +32,7 @@ def main():
 
     # instantiate the MAP object
     map = Map(tif_file=tif_data, borders_geojson=border_geojson, roads_geojson=roads_geojson,
-              waters_geojson=waters_geojson)
+              waters_geojson=waters_geojson, line_features_geojsons=line_features_geojsons)
 
     # Configure parameters
     map.cut_width_mm = 1
