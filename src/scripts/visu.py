@@ -16,21 +16,10 @@ def main():
     tif_data = args.tif_file
     border_geojson = args.borders_geojson
     roads_geojson = args.roads_geojson
+    combined = args.combined
     waters_geojson = args.ws_geojson
     _line_features = args.line_features
     line_features_geojsons = _line_features.split(';')
-
-    level_steps = args.level_steps
-    for_cut = args.for_cut
-    combined = args.combined
-
-    if not os.path.exists(out_data):
-        os.makedirs(out_data)
-    try:
-        steps = LayerRanges.linear_15 if not level_steps else [int(step) for step in level_steps.split(';')]
-    except Exception as e:
-        raise ArgumentError(
-            "Could not parse Steps list, must be a list of integers separated by ';'.\nExample: 0;50;150;1000;1500 ")
 
     # instantiate the MAP object
     map = Map(tif_file=tif_data, borders_geojson=border_geojson, roads_geojson=roads_geojson,
@@ -47,7 +36,8 @@ def main():
     map.filtered_water_bodies = [WB.DAM]
     map.size_filtered_water_bodies = [WB.CREEK, WB.POND]
     map.waters_min_size = 20
-    map.rotate = 0
+    map.rotate = 270
+    map.always_stroke_to_paths = True
 
     # Compute its layers
     map.compute_all_layers(level_steps=LayerRanges.third_13_3)

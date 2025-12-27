@@ -83,6 +83,8 @@ class Map:
     road_scaling = RoadsWeight.RANKING_1
     canevas = A3
     for_cut = False
+    combined_grayscale_cut = True
+    always_stroke_to_paths = False
 
     # Only for display purposes, CNC Machine sees it as a vector
     cut_width_mm = 1
@@ -200,11 +202,18 @@ class Map:
                                   stroke_color=svg_color if not self.show_contour_strokes else "black",
                                   fill=True)
         else:
+            if self.combined_grayscale_cut:
+                gray_value = 0xff - altitude_to_gray(layer_range[0], min_alt, max_alt)
+                svg_color = f"rgb({gray_value},{gray_value},{gray_value})"
+                fill = True
+            else:
+                svg_color = "red"
+                fill = False
 
             self.save_map_as_svgs(contour, save_file,
-                                  fill_color="red",
-                                  stroke_color="black" if self.show_contour_strokes else "red",
-                                  fill=False)
+                                  fill_color=svg_color,
+                                  stroke_color="black" if self.show_contour_strokes else svg_color,
+                                  fill=fill)
 
     def save_map_as_svgs(self, contours: np.ndarray, filename: str, fill: bool,
                          fill_color: str = "black",
@@ -373,17 +382,10 @@ class Map:
                 if layer_waters:
                     self.append_water_to_svg(file, layer_waters)
 
-        USE_INKSCAPE = True
-        # Option 1
         # converts all road strokes to path using inkscape
-        if self.for_cut and USE_INKSCAPE:
+        if self.always_stroke_to_paths or self.for_cut:
             selectors = ['[type="road"]', '[type="line_feature"]']
             parallel_convert_strokes_to_paths(saved_layers, selectors, max_workers=12)
-
-        # Option 2
-        # Convert strokes to paths directly in Python
-        elif self.for_cut:
-            parallel_convert_strokes_to_paths_in_svg(saved_layers, '[type="road"]', max_workers=1)
 
         # Combine layers into a single SVG if requested
         if combined and saved_layers:
