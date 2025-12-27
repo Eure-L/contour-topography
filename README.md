@@ -27,11 +27,14 @@ contour_map.save_all_layers(save_path=dst, combined=True, for_cut=False)
 ```
 
 # Prerequisites
-This project needs geotiff to be installed.
+This project needs GDAL and Inkscape to be installed.
 
 **Linux Debian-like**
 ```shell
 sudo apt update
+# inkscape
+sudo apt  install inkscape 
+# GDAL
 sudo apt install \
     unixodbc unixodbc-dev \
     libblosc-dev \
@@ -51,6 +54,8 @@ sudo apt install \
     libgeos-dev \
     libproj-dev \
     libhdf4-0 \
-    libhdf4-dev
+    libhdf4-dev\
+    gdal-bin\
+    libgdal-dev
 ```
 Make sure its shared libraries are accessible by the python interpreter.
