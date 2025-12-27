@@ -377,7 +377,8 @@ class Map:
         # Option 1
         # converts all road strokes to path using inkscape
         if self.for_cut and USE_INKSCAPE:
-            parallel_convert_strokes_to_paths(saved_layers, '[type="road"]', max_workers=12)
+            selectors = ['[type="road"]', '[type="line_feature"]']
+            parallel_convert_strokes_to_paths(saved_layers, selectors, max_workers=12)
 
         # Option 2
         # Convert strokes to paths directly in Python

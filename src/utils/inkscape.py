@@ -8,14 +8,13 @@ from typing import List
 from xml.etree import ElementTree as ET
 
 
-
-def convert_strokes_to_paths(input_file: str, select_attr: str = 'all') -> bool:
+def convert_strokes_to_paths_for_selectors(input_file: str, select_attrs: List[str]) -> bool:
     """
-    Convert SVG strokes to paths using Inkscape.
+    Convert SVG strokes to paths for multiple selectors using Inkscape.
 
     Args:
         input_file: Path to the input SVG file
-        select_attr: CSS selector for elements to convert (default: 'all')
+        select_attrs: List of CSS selectors for elements to convert
 
     Returns:
         True if conversion was successful, False otherwise
@@ -27,14 +26,20 @@ def convert_strokes_to_paths(input_file: str, select_attr: str = 'all') -> bool:
                        stdout=subprocess.PIPE,
                        stderr=subprocess.PIPE)
 
-        # Determine selection method
-        select_method = 'select-all' if select_attr == 'all' else 'select-by-selector'
-        print(f"runing Inkscape 'stroke to path' on {input_file}")
+        print(f"Running Inkscape 'stroke to path' on {input_file}")
+
+        # Build the actions string for all selectors
+        actions = []
+        for selector in select_attrs:
+            actions.append(f'select-by-selector:{selector};object-stroke-to-path')
+
+        # Join all actions with semicolons
+        actions_str = ';'.join(actions)
 
         # Build and run the Inkscape command
         cmd = [
             'inkscape',
-            f'--actions={select_method}:{select_attr};object-stroke-to-path',
+            f'--actions={actions_str}',
             f'--export-filename={input_file}',
             input_file
         ]
@@ -68,13 +73,13 @@ def batch_convert_strokes_to_paths(files: List[str], select_attr: str = 'all') -
     return [convert_strokes_to_paths(file, select_attr) for file in files]
 
 
-def parallel_convert_strokes_to_paths(files: List[str], select_attr: str = 'all', max_workers: int = 4) -> List[bool]:
+def parallel_convert_strokes_to_paths(files: List[str], select_attrs: List[str] = ['[type="road"]'], max_workers: int = 4) -> List[bool]:
     """
-    Convert strokes to paths in multiple SVG files in parallel.
+    Convert strokes to paths in multiple SVG files in parallel for multiple element types.
 
     Args:
         files: List of input SVG file paths
-        select_attr: CSS selector for elements to convert (default: 'all')
+        select_attrs: List of CSS selectors for elements to convert (default: ['[type="road"]'])
         max_workers: Maximum number of threads to use (default: 4)
 
     Returns:
@@ -83,7 +88,7 @@ def parallel_convert_strokes_to_paths(files: List[str], select_attr: str = 'all'
     results = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_file = {
-            executor.submit(convert_strokes_to_paths, file, select_attr): file
+            executor.submit(convert_strokes_to_paths_for_selectors, file, select_attrs): file
             for file in files
         }
 
