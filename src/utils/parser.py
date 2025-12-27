@@ -49,6 +49,13 @@ def argv_parser():
     )
 
     parser.add_argument(
+        '-lf', '--line-features',
+        type=str,
+        default=None,
+        help='List of line features GeoJSON to include'
+    )
+
+    parser.add_argument(
         '--level-steps',
         type=str,
         default=None,

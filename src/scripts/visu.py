@@ -17,6 +17,9 @@ def main():
     border_geojson = args.borders_geojson
     roads_geojson = args.roads_geojson
     waters_geojson = args.ws_geojson
+    _line_features = args.line_features
+    line_features_geojsons = _line_features.split(';')
+
     level_steps = args.level_steps
     for_cut = args.for_cut
     combined = args.combined
@@ -31,11 +34,11 @@ def main():
 
     # instantiate the MAP object
     map = Map(tif_file=tif_data, borders_geojson=border_geojson, roads_geojson=roads_geojson,
-              waters_geojson=waters_geojson)
+              waters_geojson=waters_geojson, line_features_geojsons=line_features_geojsons)
 
     # Configure parameters
     map.cut_width_mm = 0.5
-    map.road_detail = RoadDetail.ULTRA
+    map.road_detail = RoadDetail.HIGH
     map.road_scaling = RoadsWeight.RANKING_1
     map.show_roads = True
     map.show_water_surfaces = True

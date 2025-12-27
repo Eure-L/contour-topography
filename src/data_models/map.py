@@ -20,6 +20,7 @@ from shapely.ops import transform as shp_transform
 
 from data_models.color_stop import ColorStop
 from data_models.features import RoadFeature, WaterFeature
+from data_models.features.line_feature import LineFeature
 from defines.canvas_sizes import A3
 from defines.color_palettes import ColorPalettes
 from defines.road_detail import RoadDetail
@@ -47,7 +48,8 @@ class Map:
 
     _topo_layers: Dict = None
     _road_layers: Dict[Tuple[int, int], List[Tuple[int, str]]] = None
-    _water_layers: Dict[Tuple[int, int], List[Tuple[int, str]]] = None
+    _lf_layers: Dict[Tuple[int, int], List[str]] = None
+    _water_layers: Dict[Tuple[int, int], List[str]] = None
 
     _width: int = None
     _height: int = None
@@ -57,11 +59,14 @@ class Map:
     _borders_geojson: str = None
     _roads_geojson: str = None
     _waters_geojson: str = None
+    _line_features_geojsons: List[str] = None
 
     # Deserialized data
     _borders_polygons: List = None
     _road_features: List[RoadFeature] = None
     _water_features: List[WaterFeature] = None
+    _line_features: List[LineFeature] = None
+
     _ds: Dataset = None
 
     _gt: GeomTransformer = None
@@ -83,15 +88,16 @@ class Map:
     cut_width_mm = 1
     rotate = 0
 
-    filtered_water_bodies : List[WaterBodyType] = []
-    size_filtered_water_bodies: List[WaterBodyType]  = []
+    filtered_water_bodies: List[WaterBodyType] = []
+    size_filtered_water_bodies: List[WaterBodyType] = []
     waters_min_size = 500
 
     def __init__(self, tif_file: str,
                  borders_geojson: str = None,
                  roads_geojson: str = None,
                  name: str = None,
-                 waters_geojson: str = None):
+                 waters_geojson: str = None,
+                 line_features_geojsons: List[str] = None):
         """
 
         :param tif_file:            Tif file storing grayscale values
@@ -110,6 +116,7 @@ class Map:
         self._borders_geojson = borders_geojson
         self._roads_geojson = roads_geojson
         self._waters_geojson = waters_geojson
+        self._line_features_geojsons = line_features_geojsons
 
     def elevation_at(self, lon: float, lat: float) -> Union[float, None]:
         """
@@ -157,6 +164,7 @@ class Map:
             # Check exterior ring
             if check_coords(list(feature.exterior.coords)):
                 return True
+
             # Check interior rings (holes)
             for interior in feature.interiors:
                 if check_coords(list(interior.coords)):
@@ -180,7 +188,6 @@ class Map:
             contour: Numpy array of contour points
             layer_range: Elevation range tuple (min, max)
             save_file: Output SVG file path
-            for_cut: Whether the SVG is for CNC cutting (affects styling)
         """
         min_alt = self.grayscale_picture.min()
         max_alt = self.grayscale_picture.max()
@@ -210,7 +217,6 @@ class Map:
             filename: Output SVG file path
             fill: Whether to fill the contours
             fill_color: Stroke/fill color
-            stroke_width_mm: Stroke width in millimeters
             stroke_color: Color of the stroke
         """
 
@@ -253,6 +259,28 @@ class Map:
             path = ET.SubElement(root, "ns0:path", type="road", stroke="black", fill="none",
                                  **{"stroke-width": f"{thickness}mm"},
                                  d=d)
+            path.tail = "\n  "
+
+        tree.write(svg_file, encoding="utf-8", xml_declaration=True)
+
+    def append_lfs_to_svg(self, svg_file: str, lf_paths: List[str]):
+        """
+        Append generic line features paths to an existing SVG file.
+
+        Args:
+            svg_file: Path to existing SVG file
+            lf_paths: List of line path (svg_path_data)
+        """
+
+        tree = ET.parse(svg_file)
+        root = tree.getroot()
+
+        for lf in lf_paths:
+            thickness = 0.8
+
+            path = ET.SubElement(root, "ns0:path", type="line_feature", stroke="black", fill="none",
+                                 **{"stroke-width": f"{thickness}mm"},
+                                 d=lf)
             path.tail = "\n  "
 
         tree.write(svg_file, encoding="utf-8", xml_declaration=True)
@@ -336,6 +364,10 @@ class Map:
                 if layer_roads:
                     self.append_roads_to_svg(file, layer_roads)
 
+                layer_lf = self._lf_layers.get(level_range, [])
+                if layer_lf:
+                    self.append_lfs_to_svg(file, layer_lf)
+
             if self.show_water_surfaces:
                 layer_waters = self._water_layers.get(level_range, [])
                 if layer_waters:
@@ -417,6 +449,7 @@ class Map:
 
         if self.show_roads:
             self.compute_road_layers()
+            self.compute_lf_layers()
 
         if self.show_water_surfaces:
             self.compute_water_surfaces()
@@ -468,6 +501,27 @@ class Map:
                 if self.feature_in_elevation(road.geometry, (start, nex_start)):
                     for svg_path in road.paths:
                         self._road_layers[level_range].append((road.hierarchy, svg_path))
+
+    def compute_lf_layers(self):
+        """
+        Compute generic line features layers for each elevation layer.
+
+        Populates self._road_layers with road segments that fall within
+        each elevation layer's range.
+        """
+        self._lf_layers = {lr: [] for lr in self._topo_layers.keys()}
+        level_ranges = list(self._topo_layers.keys())
+        next_level_ranges = level_ranges[1:]
+        next_level_ranges.append(level_ranges[-1])
+
+        for idx, level_range in enumerate(level_ranges):
+            start, end = level_range
+            nex_start, nex_end = next_level_ranges[idx]
+
+            for lf in self.line_features:
+                if self.feature_in_elevation(lf.geometry, (start, nex_start)):
+                    for svg_path in lf.paths:
+                        self._lf_layers[level_range].append(svg_path)
 
     def compute_water_surfaces(self):
         """
@@ -546,6 +600,23 @@ class Map:
                 self._road_features.append(road)
 
         return self._road_features
+
+    @property
+    def line_features(self) -> List[LineFeature]:
+        if self._line_features is None:
+            self._line_features = []
+            if self._line_features_geojsons is None:
+                return self._line_features
+
+            for line_features_geojson in self._line_features_geojsons:
+                with open(line_features_geojson, 'r') as f:
+                    geojson = json.load(f)
+
+                for feature in geojson['features']:
+                    line_feature = LineFeature(feature, gt=self.gt, lat_scale=self.lat_scale, lon_scale=1)
+                    self._line_features.append(line_feature)
+
+        return self._line_features
 
     @property
     def water_surfaces(self) -> List[WaterFeature]:

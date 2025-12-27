@@ -35,7 +35,7 @@ def main():
 
     # Configure parameters
     map.cut_width_mm = 1
-    map.road_detail = RoadDetail.LOW
+    map.road_detail = RoadDetail.HIGH
     map.road_scaling = RoadsWeight.RANKING_1
     map.show_roads = True
     map.show_water_surfaces = True
