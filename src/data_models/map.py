@@ -3,17 +3,15 @@ import logging
 import math
 import os
 from typing import Dict, Tuple, Union, List, Optional
-from xml.etree import ElementTree as ET
+from xml.etree import ElementTree as ET, ElementTree
 
 import cv2
 import numpy as np
 from osgeo import gdal
 from osgeo.gdal import Dataset
 from osgeo.ogr import GeomTransformer
-from shapely import vectorized, Polygon
+from shapely import vectorized
 from shapely.geometry import shape
-from shapely.geometry.base import BaseGeometry
-from shapely.geometry.linestring import LineString
 from shapely.geometry.multipolygon import MultiPolygon
 from shapely.ops import transform as shp_transform
 
@@ -26,8 +24,9 @@ from defines.road_weights import RoadsWeight
 from defines.water_bodies import WaterBodyType
 from src.utils.colormapping import altitudes_to_rgb_array, altitude_to_rgb
 from utils.colormapping import altitude_to_gray
-from utils.geo import pixel2coord, geo_to_pixel, scale_path_y, elevation_at
+from utils.geo import pixel2coord, scale_path_y
 from utils.inkscape import parallel_convert_strokes_to_paths, batch_rotate_svg
+from utils.svg import save_svg
 
 # Constants
 DEFAULT_MIN_CONTOUR_POINTS = 20
@@ -44,6 +43,11 @@ class Map:
     """
     Interfaces TIF Image file and provides functionality to process and visualize elevation data.
     """
+    svg_tree_layers: Dict[Tuple[int, int], ElementTree]
+    svg_terrain_group: ET.Element
+    svg_road_group: ET.Element
+    svg_line_group: ET.Element
+    svg_water_group: ET.Element
 
     def __init__(self, tif_file: str, name: Optional[str] = None):
         """
@@ -55,13 +59,8 @@ class Map:
         self._tif_file = tif_file
         self._name = name or os.path.splitext(os.path.basename(tif_file))[0]
 
-        # Initialize data structures
-        self._initialize_data_structures()
-
         # Configuration properties
         self.show_contour_lines = False
-        self.include_roads = True
-        self.include_water_surfaces = True
         self.road_detail = RoadDetail.MEDIUM
         self.road_scaling = RoadsWeight.RANKING_1
         self.canevas = A3
@@ -77,6 +76,9 @@ class Map:
         self.size_filtered_water_bodies: List[WaterBodyType] = []
         self.waters_min_size = DEFAULT_WATER_MIN_SIZE
 
+        # Initialize data structures
+        self._initialize_data_structures()
+
     def _initialize_data_structures(self):
         """Initialize all data structures used by the Map class."""
         self._grayscale_picture: Optional[np.ndarray] = None
@@ -84,12 +86,13 @@ class Map:
         self._color_picture: Optional[np.ndarray] = None
 
         self._topo_layers: Dict = {}
-        self._road_layers: Dict[Tuple[int, int], List[Tuple[int, str]]] = {}
-        self._lf_layers: Dict[Tuple[int, int], List[str]] = {}
-        self._water_layers: Dict[Tuple[int, int], List[str]] = {}
+        self._road_layers: Dict[Tuple[int, int], List[RoadFeature]] = {}
+        self._lf_layers: Dict[Tuple[int, int], List[LineFeature]] = {}
+        self._water_layers: Dict[Tuple[int, int], List[WaterFeature]] = {}
 
         self._width: Optional[int] = None
         self._height: Optional[int] = None
+        self._corners = None
 
         # Data source files
         self._border_sources: List[str] = []
@@ -108,6 +111,18 @@ class Map:
         self._gt: Optional[GeomTransformer] = None
         self._corners: Optional[Dict] = None
         self._bounding_box: Optional[Dict] = None
+
+        self.done_roads = set()
+
+        # XML data layers
+        self.svg_tree: ET.ElementTree = ET.ElementTree(ET.Element("svg", **self.get_svg_header()))
+
+        self.svg_terrain_group = ET.SubElement(self.svg_tree.getroot(), "g", id="terrain")
+        self.svg_road_group = ET.SubElement(self.svg_tree.getroot(), "g", id="roads")
+        self.svg_line_group = ET.SubElement(self.svg_tree.getroot(), "g", id="lines")
+        self.svg_water_group = ET.SubElement(self.svg_tree.getroot(), "g", id="waters")
+
+        self.svg_tree_layers: Dict[Tuple[int, int], ET.ElementTree] = {}
 
     # Property getters and setters
     @property
@@ -341,177 +356,132 @@ class Map:
         """
         self._water_sources.extend(files)
 
-    # Core functionality methods
-    def feature_in_elevation(self, feature: Union[LineString, Polygon, BaseGeometry],
-                          level_range: Tuple[float, float]) -> bool:
-        """
-        Check if any part of a feature (line or polygon) lies within the specified elevation range.
-
-        :param feature: Shapely geometry object (LineString, Polygon, etc.)
-        :param level_range: Tuple of (min_elevation, max_elevation)
-        :return: True if any part of the feature is within elevation range, False otherwise
-        """
-        min_alt, max_alt = level_range
-
-        def check_coords(coords):
-            """Helper function to check if any coordinate is within elevation range"""
-            for lon, lat in coords:
-                elev = elevation_at(self.gt, self.grayscale_picture, lon, lat)
-                if elev is not None and min_alt <= elev < max_alt:
-                    return True
-            return False
-
-        if isinstance(feature, LineString):
-            return check_coords(list(feature.coords))
-        elif isinstance(feature, Polygon):
-            # Check exterior ring
-            if check_coords(list(feature.exterior.coords)):
-                return True
-
-            # Check interior rings (holes)
-            for interior in feature.interiors:
-                if check_coords(list(interior.coords)):
-                    return True
-            return False
-        elif hasattr(feature, 'geoms'):  # MultiLineString, MultiPolygon, etc.
-            # Check all parts
-            for part in feature.geoms:
-                if self.feature_in_elevation(part, level_range):
-                    return True
-            return False
-        else:
-            return False
-
-    def _save_layer_as_svg(self, contour: np.ndarray, layer_range: Tuple[Union[int, float], Union[int, float]],
-                           save_file: str):
+    def _append_layer_to_svg(self, level_range: Tuple[Union[int, float], Union[int, float]]):
         """
         Save a contour layer as an SVG file.
 
-        :param contour: Numpy array of contour points
-        :param layer_range: Elevation range tuple (min, max)
-        :param save_file: Output SVG file path
+        :param level_range: Elevation range tuple (min, max)
         """
+
+        stroke_width_mm = round(self.cut_width_mm, 1)
         min_alt = self.grayscale_picture.min()
         max_alt = self.grayscale_picture.max()
+        contours: np.ndarray = self._topo_layers[level_range]
+        layer_group = self.svg_tree_layers[level_range]
 
         if not self.for_cut:
-            r, g, b = altitude_to_rgb(layer_range[0], min_alt, max_alt, self.color_palette)
+            r, g, b = altitude_to_rgb(level_range[0], min_alt, max_alt, self.color_palette)
             svg_color = f"rgb({r},{g},{b})"
-            self._save_map_as_svgs(contour, save_file,
-                                   fill_color=svg_color,
-                                   stroke_color=svg_color if not self.show_contour_lines else "black",
-                                   fill=True)
+            stroke_color = svg_color if not self.show_contour_lines else "black"
+            fill = True
         else:
             if self.combined_grayscale_cut:
-                gray_value = 0xff - altitude_to_gray(layer_range[0], min_alt, max_alt)
+                gray_value = 0xff - altitude_to_gray(level_range[0], min_alt, max_alt)
                 svg_color = f"rgb({gray_value},{gray_value},{gray_value})"
                 fill = True
             else:
                 svg_color = "red"
                 fill = False
+            stroke_color = "black" if self.show_contour_lines else svg_color
 
-            self._save_map_as_svgs(contour, save_file,
-                                   fill_color=svg_color,
-                                   stroke_color="black" if self.show_contour_lines else svg_color,
-                                   fill=fill)
+        for contour in contours:
+            path_data = "M " + " L ".join(
+                f"{int(x)},{int(y)}" for x, y in contour[:, 0, :]
+            )
+            path_data = scale_path_y(path_data, self.lat_scale)
+            path_data += " Z"
+            fill_str = f'{svg_color}' if fill else "none"
 
-    def _save_map_as_svgs(self, contours: np.ndarray, filename: str, fill: bool,
-                          fill_color: str = "black",
-                          stroke_color: str = "black"):
+            new_path = ET.Element("path", type="terrain", stroke=f"{stroke_color}", fill=f"{fill_str}",
+                                  **{"stroke-width": f"{stroke_width_mm}mm"}, d=path_data)
+
+            layer_group.getroot().append(new_path)
+            self.svg_terrain_group.append(new_path)
+
+    def _append_roads_to_svg(self, level_range: Tuple[int, int]):
         """
-        Save contours as SVG file with proper scaling and viewbox.
+        Appends to the map SVG root the relevant roads for a level range
 
-        :param contours: List of contour arrays
-        :param filename: Output SVG file path
-        :param fill: Whether to fill the contours
-        :param fill_color: Stroke/fill color
-        :param stroke_color: Color of the stroke
-        :return: None
-        """
-        stroke_width_mm = round(self.cut_width_mm, 1)
-        height, width = self.grayscale_picture.shape
-        viewbox_height = int(height * self.lat_scale)
-        viewbox_width = width
-
-        with open(filename, 'w') as f:
-            f.write(f'<svg xmlns="http://www.w3.org/2000/svg" '
-                    f'width="{self.canevas.width}" height="{self.canevas.height}" viewBox="0 0 {viewbox_width} {viewbox_height}">\n')
-            for contour in contours:
-                path_data = "M " + " L ".join(
-                    f"{int(x)},{int(y)}" for x, y in contour[:, 0, :]
-                )
-                path_data = scale_path_y(path_data, self.lat_scale)
-                path_data += " Z"
-                fill_str = f'fill="{fill_color}"' if fill else f'fill="none"'
-                f.write(
-                    f'  <path type="cut" stroke="{stroke_color}" {fill_str} stroke-width="{stroke_width_mm}mm" d="{path_data}" />\n')
-            f.write('</svg>')
-
-    def _append_roads_to_svg(self, svg_file: str, road_paths: List[Tuple[int, str]]):
-        """
-        Append road paths to an existing SVG file.
-
-        :param svg_file: Path to existing SVG file
-        :param road_paths: List of tuples (hierarchy, svg_path_data)
+        :param level_range: Level range data to insert
         :return: None
         """
 
-        tree = ET.parse(svg_file)
-        root = tree.getroot()
+        layer_group = self.svg_tree_layers[level_range]
 
-        for road in road_paths:
-            hierarchy, d = road
+        layer_roads = self._road_layers.get(level_range, [])
+
+        for road in layer_roads:
+            paths = road.paths
+            hierarchy = road.hierarchy
             thickness = self.road_scaling.interpolate(hierarchy)
             thickness = round(thickness, 1)
+            for d in paths:
+                new_path = ET.Element(
+                    "path",
+                    type="road",
+                    **{"stroke-width": f"{thickness}mm"},
+                    stroke="black",
+                    fill="none",
+                    d=d
+                )
+                new_path.tail = "\n    "
+                layer_group.getroot().append(new_path)
+                self.svg_road_group.append(new_path)
 
-            path = ET.SubElement(root, "ns0:path", type="road", stroke="black", fill="none",
-                                 **{"stroke-width": f"{thickness}mm"},
-                                 d=d)
-            path.tail = "\n  "
-
-        tree.write(svg_file, encoding="utf-8", xml_declaration=True)
-
-    def _append_lfs_to_svg(self, svg_file: str, lf_paths: List[str]):
+    def _append_lfs_to_svg(self, level_range: Tuple[int, int]):
         """
         Append generic line features paths to an existing SVG file.
 
-        :param svg_file: Path to existing SVG file
-        :param lf_paths: List of line path (svg_path_data)
+        :param level_range: Level range data to insert
         :return: None
         """
 
-        tree = ET.parse(svg_file)
-        root = tree.getroot()
-
-        for lf in lf_paths:
+        layer_group = self.svg_tree_layers[level_range]
+        layer = self._lf_layers.get(level_range, [])
+        for lf in layer:
+            paths = lf.paths
             thickness = 0.8
+            for d in paths:
+                new_path = ET.Element(
+                    "path",
+                    type="line",
+                    stroke="black",
+                    fill="none",
+                    **{"stroke-width": f"{thickness}mm"},
+                    d=d
+                )
+                new_path.tail = "\n    "
+                layer_group.getroot().append(new_path)
+                self.svg_line_group.append(new_path)
+        pass
 
-            path = ET.SubElement(root, "ns0:path", type="line_feature", stroke="black", fill="none",
-                                 **{"stroke-width": f"{thickness}mm"},
-                                 d=lf)
-            path.tail = "\n  "
-
-        tree.write(svg_file, encoding="utf-8", xml_declaration=True)
-
-    def _append_water_to_svg(self, svg_file: str, water_paths: List[str]):
+    def _append_water_to_svg(self, level_range: Tuple[int, int]):
         """
         Append water surfaces to an existing SVG file.
 
-        :param svg_file: Path to existing SVG file
-        :param water_paths: List of SVG path data strings for water surfaces
+        :param level_range: Level range data to insert
         :return: None
         """
-        tree = ET.parse(svg_file)
-        root = tree.getroot()
 
+        layer_group = self.svg_tree_layers[level_range]
+        layer = self._water_layers.get(level_range, [])
         fill = "blue" if self.for_cut else "#ADD8E6"
 
-        for d in water_paths:
-            path = ET.SubElement(root, "ns0:path", type="water", stroke="none", fill=fill,
-                                 **{"stroke-width": "0.1mm"}, d=d)
-            path.tail = "\n  "
-
-        tree.write(svg_file, encoding="utf-8", xml_declaration=True)
+        for wb_feat in layer:
+            paths = wb_feat.paths
+            for d in paths:
+                new_path = ET.Element(
+                    "path",
+                    type="water",
+                    stroke="none",
+                    fill=fill,
+                    **{"stroke-width": "0.1mm"},
+                    d=d
+                )
+                new_path.tail = "\n    "
+                layer_group.getroot().append(new_path)
+                self.svg_water_group.append(new_path)
+        pass
 
     def _get_border_mask(self) -> np.ndarray:
         """
@@ -529,9 +499,11 @@ class Map:
         ys = np.arange(height)
         xx, yy = np.meshgrid(xs, ys)
         gt = self.gt
-        # Pixel → lon/lat
+
+        # Pixel -> lon/lat
         x = gt[0] + xx * gt[1]
         y = gt[3] + yy * gt[5]
+
         # Apply latitude scale
         y = y * self.lat_scale
 
@@ -540,89 +512,68 @@ class Map:
 
         return (inside.astype(np.uint8) * 255)
 
-    def save_all_layers(self, save_path: str, combined: bool, remove_inters=False):
+    def get_svg_header(self):
+        height, width = self.grayscale_picture.shape
+        viewbox_height = int(height * self.lat_scale)
+        viewbox_width = width
+
+        return {
+            "xmlns": "http://www.w3.org/2000/svg",
+            "width": f"{self.canevas.width}",
+            "height": f"{self.canevas.height}",
+            "viewBox": f"0 0 {viewbox_width} {viewbox_height}"
+        }
+
+    def save_all_layers(self, save_path: str, combined: bool = True, intermediates: bool = False):
         """
         Save all elevation layers as SVG files.
 
         :param save_path: Directory to save SVG files
-        :param combined: Whether to combine all layers into one SVG
-        :param remove_inters: Whether to remove intermediary built layers after combining
+        :param combined: Whether to combine all layers into one SVG (default: True)
+        :param intermediates: Whether to save intermediate layers
         :return: None
         """
         saved_layers = []
+        self.svg_terrain_group.clear()
+        self.svg_water_group.clear()
+        self.svg_road_group.clear()
+        self.svg_line_group.clear()
 
         os.makedirs(save_path, exist_ok=True)
 
-        # Save each layer as an individual SVG
         for level_range, contour in self._topo_layers.items():
+            logger.debug(f"Processing level range: {level_range}")  # Add this debug log
+
             start, top = int(level_range[0]), int(level_range[1])
-            file = os.path.join(save_path, f"{self.name}_{start}-{top}.svg")
-            saved_layers.append(file)
-            self._save_layer_as_svg(contour, (start, top), file)
 
-            if self.include_roads:
-                layer_roads = self._road_layers.get(level_range, [])
-                if layer_roads:
-                    self._append_roads_to_svg(file, layer_roads)
+            self._append_layer_to_svg(level_range)
+            self._append_roads_to_svg(level_range)
+            self._append_lfs_to_svg(level_range)
+            self._append_water_to_svg(level_range)
 
-                layer_lf = self._lf_layers.get(level_range, [])
-                if layer_lf:
-                    self._append_lfs_to_svg(file, layer_lf)
+            if intermediates:
+                file = os.path.join(save_path, f"{self.name}_{start}-{top}.svg")
+                save_svg(self.svg_tree_layers[level_range], file)
+                saved_layers.append(file)
 
-            if self.include_water_surfaces:
-                layer_waters = self._water_layers.get(level_range, [])
-                if layer_waters:
-                    self._append_water_to_svg(file, layer_waters)
+        # for layer_range, child in self.svg_tree_layers.items():
+        #     self.svg_tree.getroot().extend(child.findall('path'))
 
-        # Convert all road strokes to paths using inkscape
+        if combined:
+            combined_file = os.path.join(save_path, f"{self.name}.svg")
+            save_svg(self.svg_tree, combined_file)
+            saved_layers.append(combined_file)
+
+        # Convert strokes to paths if needed
         if self.always_stroke_to_paths or self.for_cut:
-            selectors = ['[type="road"]', '[type="line_feature"]']
+            selectors = ['[type="road"]', '[type="line"]']
             parallel_convert_strokes_to_paths(saved_layers, selectors, max_workers=12)
-
-        # Combine layers into a single SVG if requested
-        if combined and saved_layers:
-            height, width = self.grayscale_picture.shape
-            viewbox_height = int(height * self.lat_scale)
-            viewbox_width = width
-            combined_svg = ET.Element(
-                "svg",
-                xmlns="http://www.w3.org/2000/svg",
-                width=self.canevas.width,
-                height=self.canevas.height,
-                viewBox=f"0 0 {viewbox_width} {viewbox_height}"
-            )
-
-            for layer_file in saved_layers:
-                tree = ET.parse(layer_file)
-                root = tree.getroot()
-
-                # Append all <g> elements (ignoring the root SVG's viewBox/width/height)
-                for g in root.findall(".//{http://www.w3.org/2000/svg}g"):
-                    combined_svg.append(g)
-
-                # Append direct <path> elements if roads are stored outside <g>
-                for path in root.findall(".//{http://www.w3.org/2000/svg}path"):
-                    combined_svg.append(path)
-
-            # Save combined SVG
-            merged_svg = os.path.join(save_path, f"{self.name}.svg")
-            ET.ElementTree(combined_svg).write(merged_svg, encoding="utf-8", xml_declaration=True)
-            logger.info(f"Combined SVG saved to {merged_svg}")
-
-            # Remove intermediary layers if requested
-            if remove_inters:
-                for layer_file in saved_layers:
-                    try:
-                        os.remove(layer_file)
-                        logger.info(f"Removed intermediary layer: {layer_file}")
-                    except OSError as e:
-                        logger.error(f"Error removing file {layer_file}: {e}")
-                saved_layers = []
-            saved_layers.append(merged_svg)
 
         # Rotate SVGs if needed for CNC machine
         if self.rotate != DEFAULT_ROTATE_DEGREES:
             batch_rotate_svg(saved_layers, saved_layers, self.rotate)
+
+        return saved_layers
 
     def generate_elevation_layers(self, level_steps: List[int]):
         """
@@ -641,12 +592,12 @@ class Map:
             level_range = (level_steps[idx - 1], level_steps[-1])
             self._generate_elevation_contours(level_range)
 
-        if self.include_roads:
-            self._compute_road_layers()
-            self._compute_lf_layers()
+            root = ET.Element("svg", **self.get_svg_header())
+            self.svg_tree_layers[level_range] = ET.ElementTree(root)
 
-        if self.include_water_surfaces:
-            self._compute_water_surfaces()
+        self._compute_road_layers()
+        self._compute_lf_layers()
+        self._compute_water_surfaces()
 
     def _generate_elevation_contours(self, level_range: Tuple[Union[float, int], Union[float, int]]):
         """
@@ -681,18 +632,16 @@ class Map:
         :return: None
         """
 
-        self._road_layers = {lr: [] for lr in self._topo_layers.keys()}
+        self._road_layers: Dict[Tuple[int, int], List[RoadFeature]] = {lr: [] for lr in self._topo_layers.keys()}
 
         for road_feat in self.roads:
             if road_feat.hierarchy > self.road_detail.value:
                 continue
 
             possible_level_ranges = road_feat.get_layer_keys(self.level_ranges)
-            svg_paths = road_feat.paths
 
             for level_range in possible_level_ranges:
-                for svg_path in svg_paths:
-                    self._road_layers[level_range].append((road_feat.hierarchy, svg_path))
+                self._road_layers[level_range].append(road_feat)
 
     def _compute_lf_layers(self):
         """
@@ -703,13 +652,12 @@ class Map:
         :return: None
         """
 
-        self._lf_layers = {lr: [] for lr in self._topo_layers.keys()}
+        self._lf_layers: Dict[Tuple[int, int], List[LineFeature]] = {lr: [] for lr in self._topo_layers.keys()}
 
         for line_feat in self.line_features:
             possible_level_ranges = line_feat.get_layer_keys(self.level_ranges)
             for level_range in possible_level_ranges:
-                svg_paths = line_feat.paths
-                self._lf_layers[level_range].extend(svg_paths)
+                self._lf_layers[level_range].append(line_feat)
 
     def _compute_water_surfaces(self):
         """
@@ -721,12 +669,11 @@ class Map:
         :return: None
         """
 
-        self._water_layers = {lr: [] for lr in self._topo_layers.keys()}
+        self._water_layers: Dict[Tuple[int, int], List[WaterFeature]] = {lr: [] for lr in self._topo_layers.keys()}
         for water_feat in self.water_surfaces:
             possible_level_ranges = water_feat.get_layer_keys(self.level_ranges)
             for level_range in possible_level_ranges:
-                svg_paths = water_feat.paths
-                self._water_layers[level_range].extend(svg_paths)
+                self._water_layers[level_range].append(water_feat)
 
     # Data loading methods
     def _load_borders_polygons(self) -> None:
@@ -760,7 +707,7 @@ class Map:
 
                 for feature in geojson['features']:
                     road = RoadFeature(feature, self.gt, self.grayscale_picture,
-                                     lat_scale=self.lat_scale, lon_scale=1)
+                                       lat_scale=self.lat_scale, lon_scale=1)
                     self._road_features.append(road)
             except Exception as e:
                 logger.error(f"Error loading road features from {source_file}: {str(e)}")
@@ -778,7 +725,7 @@ class Map:
 
                 for feature in geojson['features']:
                     line_feature = LineFeature(feature, self.gt, self.grayscale_picture,
-                                             lat_scale=self.lat_scale, lon_scale=1)
+                                               lat_scale=self.lat_scale, lon_scale=1)
                     self._line_features.append(line_feature)
             except Exception as e:
                 logger.error(f"Error loading line features from {source_file}: {str(e)}")
@@ -809,7 +756,7 @@ class Map:
                             continue
 
                     feat = WaterFeature(feature, self.gt, self.grayscale_picture,
-                                      lat_scale=self.lat_scale, lon_scale=1)
+                                        lat_scale=self.lat_scale, lon_scale=1)
                     self._water_features.append(feat)
             except Exception as e:
                 logger.error(f"Error loading water features from {source_file}: {str(e)}")

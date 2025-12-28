@@ -28,8 +28,6 @@ def main():
     map.cut_width_mm = 0.5
     map.road_detail = RoadDetail.HIGH
     map.road_scaling = RoadsWeight.RANKING_1
-    map.include_roads = True
-    map.include_water_surfaces = True
     map.for_cut = False
     map.show_contour_lines = False
     map.filtered_water_bodies = [WB.DAM]

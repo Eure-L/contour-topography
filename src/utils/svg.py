@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List
 
 from xml.etree import ElementTree as ET
+from xml.etree.ElementTree import Element, ElementTree
 
 
 def convert_stroke_to_path(stroke_element: ET.Element):
@@ -145,3 +146,20 @@ def parallel_convert_strokes_to_paths_in_svg(files: List[str], select_attr: str 
                 results.append(False)
 
     return results
+
+
+def save_svg(et: ElementTree, output_file: str):
+    """
+    Save the SVG to a file.
+
+    :param output_file: Path to output SVG file
+    :return: None
+    """
+
+    # Write to file
+    et.write(
+        output_file,
+        encoding="utf-8",
+        xml_declaration=True,
+        method="xml"
+    )

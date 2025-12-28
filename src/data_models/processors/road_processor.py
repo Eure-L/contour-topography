@@ -12,7 +12,7 @@ class RoadFeatureProcessor(FeatureProcessor):
 
     def process_feature(self, feature: Dict) -> List[str]:
         """Convert road geometry to SVG paths"""
-        paths = []
+        paths = set()
         geom = feature['geometry']['coordinates']
         geometry = shape(feature['geometry'])
 
@@ -35,9 +35,9 @@ class RoadFeatureProcessor(FeatureProcessor):
 
             if len(path_parts) > 1:
                 d = "M " + " L ".join(path_parts)
-                paths.append(d)
+                paths.add(d)
 
-        return paths
+        return list(paths)
 
     def get_layer_key(self, feature: Dict, level_ranges: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
         """ Determine all possible elevation layers based on road elevation at each point """

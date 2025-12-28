@@ -51,13 +51,16 @@ class LineFeatureProcessor(FeatureProcessor):
             if elev is None:
                 continue
 
-            for lvl in level_ranges:
-
+            for idx, lvl in enumerate(level_ranges):
+                next_lvl = level_ranges[idx + 1] if idx < len(level_ranges) - 1 else lvl
                 if lvl in feature_ranges:
                     continue
 
-                if elev > lvl[0]:
+                if next_lvl[0] >= elev >= lvl[0]:
                     feature_ranges.append(lvl)
+                    break
+
+                if next_lvl[0] >= lvl[0] > elev:
                     break
 
         return feature_ranges

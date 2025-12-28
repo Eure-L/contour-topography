@@ -59,20 +59,6 @@ def convert_strokes_to_paths_for_selectors(input_file: str, select_attrs: List[s
         return False
 
 
-def batch_convert_strokes_to_paths(files: List[str], select_attr: str = 'all') -> List[bool]:
-    """
-    Convert strokes to paths in multiple SVG files.
-
-    Args:
-        files: List of input SVG file paths
-        select_attr: CSS selector for elements to convert (default: 'all')
-
-    Returns:
-        List of boolean results for each file conversion
-    """
-    return [convert_strokes_to_paths(file, select_attr) for file in files]
-
-
 def parallel_convert_strokes_to_paths(files: List[str], select_attrs: List[str] = ['[type="road"]'], max_workers: int = 4) -> List[bool]:
     """
     Convert strokes to paths in multiple SVG files in parallel for multiple element types.

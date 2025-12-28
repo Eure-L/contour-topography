@@ -14,6 +14,11 @@ class RoadFeature(LineFeature):
         return int(self.properties.get("HIERARCHY_ID", "0"), 16)
 
     @property
+    def road_id(self) -> int:
+        """Get road hierarchy level"""
+        return self.properties.get("ID", 0)
+
+    @property
     def processor(self) -> RoadFeatureProcessor:
         """Get the processor for this feature type"""
         return RoadFeatureProcessor(self.gt, self.picture, self.lat_scale)

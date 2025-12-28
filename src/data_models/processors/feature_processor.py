@@ -32,12 +32,9 @@ class FeatureProcessor(ABC):
         """
         Check if any part of a feature (line or polygon) lies within the specified elevation range.
 
-        Args:
-            feature: GeoJSON feature dictionary
-            level_range: Tuple of (min_elevation, max_elevation)
-
-        Returns:
-            True if any part of the feature is within elevation range, False otherwise
+        :param feature: GeoJSON feature dictionary
+        :param level_range: Tuple of (min_elevation, max_elevation)
+        :return: True if any part of the feature is within elevation range, False otherwise
         """
         min_alt, max_alt = level_range
         geom = shape(feature['geometry'])
