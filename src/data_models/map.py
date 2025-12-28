@@ -2,7 +2,7 @@ import json
 import logging
 import math
 import os
-from typing import Dict, Tuple, Union, List
+from typing import Dict, Tuple, Union, List, Optional
 from xml.etree import ElementTree as ET
 
 import cv2
@@ -17,7 +17,6 @@ from shapely.geometry.linestring import LineString
 from shapely.geometry.multipolygon import MultiPolygon
 from shapely.ops import transform as shp_transform
 
-from data_models.color_stop import ColorStop
 from data_models.features import RoadFeature, WaterFeature
 from data_models.features.line_feature import LineFeature
 from defines.canvas_sizes import A3
@@ -30,92 +29,260 @@ from utils.colormapping import altitude_to_gray
 from utils.geo import pixel2coord, geo_to_pixel, scale_path_y, elevation_at
 from utils.inkscape import parallel_convert_strokes_to_paths, batch_rotate_svg
 
+# Constants
+DEFAULT_MIN_CONTOUR_POINTS = 20
+DEFAULT_WATER_MIN_SIZE = 500
+DEFAULT_CUT_WIDTH_MM = 1.0
+DEFAULT_ROTATE_DEGREES = 0
+DEFAULT_PAELTTE = ColorPalettes.BROWN_1
+
 logger = logging.getLogger('map')
 logger.setLevel(logging.DEBUG)
 
 
 class Map:
     """
-    Interfaces TIF Image file
+    Interfaces TIF Image file and provides functionality to process and visualize elevation data.
     """
 
-    _grayscale_picture: np.ndarray = None
-    _border_mask: np.ndarray = None
-    _color_picture: np.ndarray = None
-
-    _topo_layers: Dict = None
-    _road_layers: Dict[Tuple[int, int], List[Tuple[int, str]]] = None
-    _lf_layers: Dict[Tuple[int, int], List[str]] = None
-    _water_layers: Dict[Tuple[int, int], List[str]] = None
-
-    _width: int = None
-    _height: int = None
-
-    # Data source files
-    _tif_file: str = None
-    _border_sources: List[str] = None
-    _road_sources: List[str] = None
-    _water_sources: List[str] = None
-    _line_sources: List[str] = None
-
-    # Deserialized data
-    _borders_polygons: List = None
-    _road_features: List[RoadFeature] = None
-    _water_features: List[WaterFeature] = None
-    _line_features: List[LineFeature] = None
-
-    _ds: Dataset = None
-
-    _gt: GeomTransformer = None
-    _corners: Dict = None
-    _bounding_box: Dict = None
-    _name: str = None
-    _color_palette: ColorStop = None
-
-    # Public properties
-    show_contour_lines = False
-    include_roads = True
-    include_water_surfaces = True
-    road_detail: RoadDetail = RoadDetail.MEDIUM
-    road_scaling = RoadsWeight.RANKING_1
-    canevas = A3
-    for_cut = False
-    combined_grayscale_cut = True
-    always_stroke_to_paths = False
-
-    # Only for display purposes, CNC Machine sees it as a vector
-    cut_width_mm = 1
-    rotate = 0
-
-    filtered_water_bodies: List[WaterBodyType] = []
-    size_filtered_water_bodies: List[WaterBodyType] = []
-    waters_min_size = 500
-
-    def __init__(self, tif_file: str,
-                 name: str = None, ):
+    def __init__(self, tif_file: str, name: Optional[str] = None):
         """
-        :param tif_file:            Tif file storing grayscale values
-        :param name:                Optionnal, Sets the name of the map for file saving
+        Initialize the Map object.
+
+        :param tif_file: Path to the TIF file storing grayscale elevation values
+        :param name: Optional name for the map (used for file saving)
         """
         self._tif_file = tif_file
-        self._topo_layers = {}
+        self._name = name or os.path.splitext(os.path.basename(tif_file))[0]
 
-        if name is not None:
-            self._name = name
-        else:
-            name = os.path.split(tif_file)[1]
-            self._name = ''.join(name.split('.')[:-1])
+        # Initialize data structures
+        self._initialize_data_structures()
 
+        # Configuration properties
+        self.show_contour_lines = False
+        self.include_roads = True
+        self.include_water_surfaces = True
+        self.road_detail = RoadDetail.MEDIUM
+        self.road_scaling = RoadsWeight.RANKING_1
+        self.canevas = A3
+        self.for_cut = False
+        self.combined_grayscale_cut = True
+        self.always_stroke_to_paths = False
+        self.cut_width_mm = DEFAULT_CUT_WIDTH_MM
+        self.rotate = DEFAULT_ROTATE_DEGREES
+        self.color_palette = DEFAULT_PAELTTE
+
+        # Water body filtering
+        self.filtered_water_bodies: List[WaterBodyType] = []
+        self.size_filtered_water_bodies: List[WaterBodyType] = []
+        self.waters_min_size = DEFAULT_WATER_MIN_SIZE
+
+    def _initialize_data_structures(self):
+        """Initialize all data structures used by the Map class."""
+        self._grayscale_picture: Optional[np.ndarray] = None
+        self._border_mask: Optional[np.ndarray] = None
+        self._color_picture: Optional[np.ndarray] = None
+
+        self._topo_layers: Dict = {}
+        self._road_layers: Dict[Tuple[int, int], List[Tuple[int, str]]] = {}
+        self._lf_layers: Dict[Tuple[int, int], List[str]] = {}
+        self._water_layers: Dict[Tuple[int, int], List[str]] = {}
+
+        self._width: Optional[int] = None
+        self._height: Optional[int] = None
+
+        # Data source files
+        self._border_sources: List[str] = []
+        self._road_sources: List[str] = []
+        self._water_sources: List[str] = []
+        self._line_sources: List[str] = []
+
+        # Deserialized data
+        self._borders_polygons: List = []
+        self._road_features: List[RoadFeature] = []
+        self._water_features: List[WaterFeature] = []
+        self._line_features: List[LineFeature] = []
+
+        # GDAL objects
+        self._ds: Optional[Dataset] = None
+        self._gt: Optional[GeomTransformer] = None
+        self._corners: Optional[Dict] = None
+        self._bounding_box: Optional[Dict] = None
+
+    # Property getters and setters
+    @property
+    def name(self) -> str:
+        """Get the name of the map."""
+        return self._name
+
+    @name.setter
+    def name(self, value: str):
+        """Set the name of the map."""
+        self._name = value
+
+    @property
+    def border_mask(self) -> np.ndarray:
+        """Get the border mask array."""
+        if self._border_mask is None:
+            self._border_mask = self._get_border_mask()
+        return self._border_mask
+
+    @property
+    def borders_polygons(self) -> List:
+        """Get the list of border polygons."""
+        if not self._borders_polygons:
+            self._load_borders_polygons()
+        return self._borders_polygons
+
+    @property
+    def roads(self) -> List[RoadFeature]:
+        """Get the list of road features."""
+        if not self._road_features:
+            self._load_road_features()
+        return self._road_features
+
+    @property
+    def line_features(self) -> List[LineFeature]:
+        """Get the list of line features."""
+        if not self._line_features:
+            self._load_line_features()
+        return self._line_features
+
+    @property
+    def water_surfaces(self) -> List[WaterFeature]:
+        """Get the list of water surface features."""
+        if not self._water_features:
+            self._load_water_features()
+        return self._water_features
+
+    @property
+    def width(self) -> int:
+        """Get the width of the grayscale picture."""
+        if self._width is None:
+            _, self._width = self.grayscale_picture.shape
+        return self._width
+
+    @property
+    def height(self) -> int:
+        """Get the height of the grayscale picture."""
+        if self._height is None:
+            self._height, _ = self.grayscale_picture.shape
+        return self._height
+
+    @property
+    def grayscale_picture(self) -> np.ndarray:
+        """Get the grayscale picture array."""
+        if self._grayscale_picture is None:
+            self._grayscale_picture = cv2.imread(self._tif_file, cv2.IMREAD_UNCHANGED)
+            if self._grayscale_picture is None:
+                raise FileNotFoundError(f"Could not read TIF file: {self._tif_file}")
+        return self._grayscale_picture
+
+    @property
+    def color_picture(self) -> np.ndarray:
+        """Get the color picture array."""
+        if self._color_picture is None:
+            self._color_picture = altitudes_to_rgb_array(self.grayscale_picture)
+        return self._color_picture
+
+    @property
+    def file(self) -> str:
+        """Get the path to the TIF file."""
+        return self._tif_file
+
+    @property
+    def ds(self) -> Dataset:
+        """Get the GDAL dataset."""
+        if self._ds is None:
+            self._ds = gdal.Open(self.file, gdal.GA_ReadOnly)
+            if self._ds is None:
+                raise RuntimeError(f"Failed to open GDAL dataset: {self.file}")
+        return self._ds
+
+    @property
+    def gt(self) -> GeomTransformer:
+        """Get the geotransform object."""
+        if self._gt is None:
+            self._gt = self.ds.GetGeoTransform()
+        return self._gt
+
+    @property
+    def corners(self) -> Dict[str, Tuple[float, float]]:
+        """Get the geographic coordinates of the map corners."""
+        if self._corners is None:
+            self._corners = self._get_corners()
+        return self._corners
+
+    @property
+    def level_ranges(self) -> List[Tuple[int, int]]:
+        """Get the list of elevation level ranges."""
+        return list(self._topo_layers.keys())
+
+    @property
+    def bounding_box(self) -> Dict[str, float]:
+        """Get the bounding box coordinates of the map."""
+        if self._bounding_box is None:
+            self._bounding_box = {
+                "north_latitude": self.corners["upper_left"][1],
+                "south_latitude": self.corners["lower_left"][1],
+                "west_longitude": self.corners["upper_left"][0],
+                "east_longitude": self.corners["upper_right"][0],
+            }
+
+        return self._bounding_box
+
+    @property
+    def north_latitude(self) -> float:
+        """Get the northern latitude boundary."""
+        return self.bounding_box["north_latitude"]
+
+    @property
+    def south_latitude(self) -> float:
+        """Get the southern latitude boundary."""
+        return self.bounding_box["south_latitude"]
+
+    @property
+    def east_longitude(self) -> float:
+        """Get the eastern longitude boundary."""
+        return self.bounding_box["east_longitude"]
+
+    @property
+    def west_longitude(self) -> float:
+        """Get the western longitude boundary."""
+        return self.bounding_box["west_longitude"]
+
+    def _get_corners(self):
+        """Return the geographic coordinates of the 4 corners and center."""
+        xsize = self.ds.RasterXSize
+        ysize = self.ds.RasterYSize
+
+        # Pixel to geo coordinates
+        corners = {
+            "upper_left": pixel2coord(self.gt, 0, 0),
+            "upper_right": pixel2coord(self.gt, xsize, 0),
+            "lower_left": pixel2coord(self.gt, 0, ysize),
+            "lower_right": pixel2coord(self.gt, xsize, ysize),
+            "center": pixel2coord(self.gt, xsize // 2, ysize // 2)
+        }
+
+        return corners
+
+    @property
+    def lat_scale(self) -> float:
+        """
+        Scale factor to compensate for EPSG:4326 latitude distortion.
+        """
+        lat0 = self.corners["center"][1]  # degrees
+        scale = 1.0 / math.cos(math.radians(lat0))
+        return scale
+
+    # Feature addition methods
     def add_border_features(self, file: str):
         """
         Adds a given file to the map's borders sources list.
 
         :param file: Path to the GeoJSON file containing border data
-        :type file: str
-        :return: None
         """
-        if self._border_sources is None:
-            self._border_sources = []
         self._border_sources.append(file)
 
     def add_road_features(self, file: str):
@@ -123,11 +290,7 @@ class Map:
         Adds a given file to the map's roads sources list.
 
         :param file: Path to the GeoJSON file containing roads data
-        :type file: str
-        :return: None
         """
-        if self._road_sources is None:
-            self._road_sources = []
         self._road_sources.append(file)
 
     def add_line_features(self, file: str):
@@ -135,11 +298,7 @@ class Map:
         Adds a given file to the map's generic lines sources list.
 
         :param file: Path to the GeoJSON file containing line features data
-        :type file: str
-        :return: None
         """
-        if self._line_sources is None:
-            self._line_sources = []
         self._line_sources.append(file)
 
     def add_water_surface_features(self, file: str):
@@ -147,11 +306,7 @@ class Map:
         Adds a given file to the map's water surfaces sources list.
 
         :param file: Path to the GeoJSON file containing water surface data
-        :type file: str
-        :return: None
         """
-        if self._water_sources is None:
-            self._water_sources = []
         self._water_sources.append(file)
 
     def add_border_features_list(self, files: List[str]):
@@ -159,62 +314,43 @@ class Map:
         Adds a list of files to the map's borders sources list.
 
         :param files: List of paths to GeoJSON files containing border data
-        :type files: List[str]
-        :return: None
         """
-
-        for file in files:
-            self.add_border_features(file)
+        self._border_sources.extend(files)
 
     def add_road_features_list(self, files: List[str]):
         """
         Adds a list of files to the map's roads sources list.
 
         :param files: List of paths to GeoJSON files containing roads data
-        :type files: List[str]
-        :return: None
         """
-
-        for file in files:
-            self.add_road_features(file)
+        self._road_sources.extend(files)
 
     def add_line_features_list(self, files: List[str]):
         """
         Adds a list of files to the map's generic lines sources list.
 
         :param files: List of paths to GeoJSON files containing line features data
-        :type files: List[str]
-        :return: None
         """
-
-        for file in files:
-            self.add_line_features(file)
+        self._line_sources.extend(files)
 
     def add_water_surface_features_list(self, files: List[str]):
         """
         Adds a list of files to the map's water surfaces sources list.
 
         :param files: List of paths to GeoJSON files containing water surface data
-        :type files: List[str]
-        :return: None
         """
+        self._water_sources.extend(files)
 
-        for file in files:
-            self.add_water_surface_features(file)
-
+    # Core functionality methods
     def feature_in_elevation(self, feature: Union[LineString, Polygon, BaseGeometry],
-                             level_range: Tuple[float, float]) -> bool:
+                          level_range: Tuple[float, float]) -> bool:
         """
         Check if any part of a feature (line or polygon) lies within the specified elevation range.
 
         :param feature: Shapely geometry object (LineString, Polygon, etc.)
-        :type feature: Union[LineString, Polygon, BaseGeometry]
         :param level_range: Tuple of (min_elevation, max_elevation)
-        :type level_range: Tuple[float, float]
         :return: True if any part of the feature is within elevation range, False otherwise
-        :rtype: bool
         """
-
         min_alt, max_alt = level_range
 
         def check_coords(coords):
@@ -246,15 +382,14 @@ class Map:
         else:
             return False
 
-    def save_layer_as_svg(self, contour: np.ndarray, layer_range: Tuple[Union[int, float], Union[int, float]],
-                          save_file: str):
+    def _save_layer_as_svg(self, contour: np.ndarray, layer_range: Tuple[Union[int, float], Union[int, float]],
+                           save_file: str):
         """
         Save a contour layer as an SVG file.
 
         :param contour: Numpy array of contour points
         :param layer_range: Elevation range tuple (min, max)
         :param save_file: Output SVG file path
-        :return: None
         """
         min_alt = self.grayscale_picture.min()
         max_alt = self.grayscale_picture.max()
@@ -262,10 +397,10 @@ class Map:
         if not self.for_cut:
             r, g, b = altitude_to_rgb(layer_range[0], min_alt, max_alt, self.color_palette)
             svg_color = f"rgb({r},{g},{b})"
-            self.save_map_as_svgs(contour, save_file,
-                                  fill_color=svg_color,
-                                  stroke_color=svg_color if not self.show_contour_lines else "black",
-                                  fill=True)
+            self._save_map_as_svgs(contour, save_file,
+                                   fill_color=svg_color,
+                                   stroke_color=svg_color if not self.show_contour_lines else "black",
+                                   fill=True)
         else:
             if self.combined_grayscale_cut:
                 gray_value = 0xff - altitude_to_gray(layer_range[0], min_alt, max_alt)
@@ -275,14 +410,14 @@ class Map:
                 svg_color = "red"
                 fill = False
 
-            self.save_map_as_svgs(contour, save_file,
-                                  fill_color=svg_color,
-                                  stroke_color="black" if self.show_contour_lines else svg_color,
-                                  fill=fill)
+            self._save_map_as_svgs(contour, save_file,
+                                   fill_color=svg_color,
+                                   stroke_color="black" if self.show_contour_lines else svg_color,
+                                   fill=fill)
 
-    def save_map_as_svgs(self, contours: np.ndarray, filename: str, fill: bool,
-                         fill_color: str = "black",
-                         stroke_color: str = "black"):
+    def _save_map_as_svgs(self, contours: np.ndarray, filename: str, fill: bool,
+                          fill_color: str = "black",
+                          stroke_color: str = "black"):
         """
         Save contours as SVG file with proper scaling and viewbox.
 
@@ -312,7 +447,7 @@ class Map:
                     f'  <path type="cut" stroke="{stroke_color}" {fill_str} stroke-width="{stroke_width_mm}mm" d="{path_data}" />\n')
             f.write('</svg>')
 
-    def append_roads_to_svg(self, svg_file: str, road_paths: List[Tuple[int, str]]):
+    def _append_roads_to_svg(self, svg_file: str, road_paths: List[Tuple[int, str]]):
         """
         Append road paths to an existing SVG file.
 
@@ -336,7 +471,7 @@ class Map:
 
         tree.write(svg_file, encoding="utf-8", xml_declaration=True)
 
-    def append_lfs_to_svg(self, svg_file: str, lf_paths: List[str]):
+    def _append_lfs_to_svg(self, svg_file: str, lf_paths: List[str]):
         """
         Append generic line features paths to an existing SVG file.
 
@@ -358,7 +493,7 @@ class Map:
 
         tree.write(svg_file, encoding="utf-8", xml_declaration=True)
 
-    def append_water_to_svg(self, svg_file: str, water_paths: List[str]):
+    def _append_water_to_svg(self, svg_file: str, water_paths: List[str]):
         """
         Append water surfaces to an existing SVG file.
 
@@ -420,27 +555,26 @@ class Map:
 
         # Save each layer as an individual SVG
         for level_range, contour in self._topo_layers.items():
-            start, top = level_range
-            start, top = int(start), int(top)
+            start, top = int(level_range[0]), int(level_range[1])
             file = os.path.join(save_path, f"{self.name}_{start}-{top}.svg")
             saved_layers.append(file)
-            self.save_layer_as_svg(contour, (start, top), file)
+            self._save_layer_as_svg(contour, (start, top), file)
 
             if self.include_roads:
                 layer_roads = self._road_layers.get(level_range, [])
                 if layer_roads:
-                    self.append_roads_to_svg(file, layer_roads)
+                    self._append_roads_to_svg(file, layer_roads)
 
                 layer_lf = self._lf_layers.get(level_range, [])
                 if layer_lf:
-                    self.append_lfs_to_svg(file, layer_lf)
+                    self._append_lfs_to_svg(file, layer_lf)
 
             if self.include_water_surfaces:
                 layer_waters = self._water_layers.get(level_range, [])
                 if layer_waters:
-                    self.append_water_to_svg(file, layer_waters)
+                    self._append_water_to_svg(file, layer_waters)
 
-        # converts all road strokes to path using inkscape
+        # Convert all road strokes to paths using inkscape
         if self.always_stroke_to_paths or self.for_cut:
             selectors = ['[type="road"]', '[type="line_feature"]']
             parallel_convert_strokes_to_paths(saved_layers, selectors, max_workers=12)
@@ -486,8 +620,8 @@ class Map:
                 saved_layers = []
             saved_layers.append(merged_svg)
 
-        # rotate SVGs if needed for CNC machine
-        if self.rotate != 0:
+        # Rotate SVGs if needed for CNC machine
+        if self.rotate != DEFAULT_ROTATE_DEGREES:
             batch_rotate_svg(saved_layers, saved_layers, self.rotate)
 
     def generate_elevation_layers(self, level_steps: List[int]):
@@ -505,16 +639,16 @@ class Map:
 
             print(f"Processing Level {level_steps[idx]}m")
             level_range = (level_steps[idx - 1], level_steps[-1])
-            self.generate_elevation_contours(level_range)
+            self._generate_elevation_contours(level_range)
 
         if self.include_roads:
-            self.compute_road_layers()
-            self.compute_lf_layers()
+            self._compute_road_layers()
+            self._compute_lf_layers()
 
         if self.include_water_surfaces:
-            self.compute_water_surfaces()
+            self._compute_water_surfaces()
 
-    def generate_elevation_contours(self, level_range: Tuple[Union[float, int], Union[float, int]]):
+    def _generate_elevation_contours(self, level_range: Tuple[Union[float, int], Union[float, int]]):
         """
         Compute contour for a specific elevation range.
 
@@ -538,7 +672,7 @@ class Map:
 
         self._topo_layers[level_range] = contours
 
-    def compute_road_layers(self):
+    def _compute_road_layers(self):
         """
         Compute road layers for each elevation layer.
         Populates self._road_layers with road segments that fall within
@@ -560,7 +694,7 @@ class Map:
                 for svg_path in svg_paths:
                     self._road_layers[level_range].append((road_feat.hierarchy, svg_path))
 
-    def compute_lf_layers(self):
+    def _compute_lf_layers(self):
         """
         Compute generic line features layers for each elevation layer.
         Populates self._road_layers with road segments that fall within
@@ -577,7 +711,7 @@ class Map:
                 svg_paths = line_feat.paths
                 self._lf_layers[level_range].extend(svg_paths)
 
-    def compute_water_surfaces(self):
+    def _compute_water_surfaces(self):
         """
         Compute water surfaces for each elevation layer.
         If a water body spans multiple layers (e.g., flowing river), it is included in all relevant layers.
@@ -594,255 +728,88 @@ class Map:
                 svg_paths = water_feat.paths
                 self._water_layers[level_range].extend(svg_paths)
 
-    @property
-    def name(self):
-        return self._name
-
-    @name.setter
-    def name(self, value: str):
-        self._name = value
-
-    @property
-    def border_mask(self):
-        if self._border_mask is None:
-            self._border_mask = self._get_border_mask()
-        return self._border_mask
-
-    @property
-    def borders_polygons(self):
-        if self._borders_polygons is None:
-            self._load_borders_polygons()
-        return self._borders_polygons
-
-    @property
-    def roads(self) -> List[RoadFeature]:
-        if self._road_features is None:
-            self._load_road_features()
-        return self._road_features
-
-    @property
-    def line_features(self) -> List[LineFeature]:
-        if self._line_features is None:
-            self._load_line_features()
-        return self._line_features
-
-    @property
-    def water_surfaces(self) -> List[WaterFeature]:
-        if self._water_features is None:
-            self._load_water_features()
-        return self._water_features
-
+    # Data loading methods
     def _load_borders_polygons(self) -> None:
         """
-        Load and process border polygons features from source files
+        Load and process border polygons features from source files.
         """
         self._borders_polygons = []
 
-        if self._border_sources is None:
-            return
-
         for source_file in self._border_sources:
-            # Todo check source file type and handle it accordingly
-            with open(source_file, 'r') as f:
-                geojson = json.load(f)
-            for feature in geojson['features']:
-                geom = shape(feature['geometry'])
-                # Scale latitude ONLY
-                geom = shp_transform(lambda lon, lat: (lon, lat * self.lat_scale), geom)
-                self._borders_polygons.append(geom)
+            try:
+                with open(source_file, 'r') as f:
+                    geojson = json.load(f)
+                for feature in geojson['features']:
+                    geom = shape(feature['geometry'])
+                    # Scale latitude ONLY
+                    geom = shp_transform(lambda lon, lat: (lon, lat * self.lat_scale), geom)
+                    self._borders_polygons.append(geom)
+            except Exception as e:
+                logger.error(f"Error loading border features from {source_file}: {str(e)}")
 
     def _load_road_features(self) -> None:
         """
-        Load and process road features from source files
+        Load and process road features from source files.
         """
         self._road_features = []
-        if self._road_sources is None:
-            return
-        for source_file in self._road_sources:
-            # Todo check source file type and handle it accordingly
-            with open(source_file, 'r') as f:
-                geojson = json.load(f)
 
-            for feature in geojson['features']:
-                road = RoadFeature(feature, self.gt, self.grayscale_picture, lat_scale=self.lat_scale, lon_scale=1)
-                self._road_features.append(road)
+        for source_file in self._road_sources:
+            try:
+                with open(source_file, 'r') as f:
+                    geojson = json.load(f)
+
+                for feature in geojson['features']:
+                    road = RoadFeature(feature, self.gt, self.grayscale_picture,
+                                     lat_scale=self.lat_scale, lon_scale=1)
+                    self._road_features.append(road)
+            except Exception as e:
+                logger.error(f"Error loading road features from {source_file}: {str(e)}")
 
     def _load_line_features(self) -> None:
         """
-        Load and process line features from source files
+        Load and process line features from source files.
         """
         self._line_features = []
-        if self._line_sources is None:
-            return None
 
         for source_file in self._line_sources:
-            # Todo check source file type and handle it accordingly
-            with open(source_file, 'r') as f:
-                geojson = json.load(f)
+            try:
+                with open(source_file, 'r') as f:
+                    geojson = json.load(f)
 
-            for feature in geojson['features']:
-                line_feature = LineFeature(feature, self.gt, self.grayscale_picture, lat_scale=self.lat_scale,
-                                           lon_scale=1)
-                self._line_features.append(line_feature)
-        return None
+                for feature in geojson['features']:
+                    line_feature = LineFeature(feature, self.gt, self.grayscale_picture,
+                                             lat_scale=self.lat_scale, lon_scale=1)
+                    self._line_features.append(line_feature)
+            except Exception as e:
+                logger.error(f"Error loading line features from {source_file}: {str(e)}")
 
     def _load_water_features(self) -> None:
         """
-        Load and process water features from source files
+        Load and process water features from source files.
         """
-
         self._water_features = []
-        if self._water_sources is None:
-            return
 
         for source_file in self._water_sources:
-            # Todo check source file type and handle it acordilngly
-            with open(source_file, 'r') as f:
-                geojson = json.load(f)
+            try:
+                with open(source_file, 'r') as f:
+                    geojson = json.load(f)
 
-            for feature in geojson['features']:
-                # Aplies filters on water bodies to include (lots of swamps and ponds..)
-                wb = feature["properties"]['WATER_BODY_TYPE']
-                wb = WaterBodyType(wb)
+                for feature in geojson['features']:
+                    # Apply filters on water bodies to include (lots of swamps and ponds..)
+                    wb = feature["properties"]['WATER_BODY_TYPE']
+                    wb = WaterBodyType(wb)
 
-                if wb in self.filtered_water_bodies:
-                    continue
-                if wb in self.size_filtered_water_bodies:
-                    s = len(feature["geometry"]['coordinates'][0])
-                    id = feature["properties"]['OBJECTID']
-                    wbname = feature["properties"]['WATER_BODY_NAME']
-                    if s < self.waters_min_size:
+                    if wb in self.filtered_water_bodies:
                         continue
+                    if wb in self.size_filtered_water_bodies:
+                        s = len(feature["geometry"]['coordinates'][0])
+                        id = feature["properties"]['OBJECTID']
+                        wbname = feature["properties"]['WATER_BODY_NAME']
+                        if s < self.waters_min_size:
+                            continue
 
-                feat = WaterFeature(feature, self.gt, self.grayscale_picture, lat_scale=self.lat_scale, lon_scale=1)
-                self._water_features.append(feat)
-
-    @property
-    def width(self):
-        if self._width is None:
-            _, width = self.grayscale_picture.shape
-            self._width = width
-        return self._width
-
-    @property
-    def height(self):
-        if self._height is None:
-            _, height = self.grayscale_picture.shape
-            self._height = height
-        return self._height
-
-    @property
-    def grayscale_picture(self) -> np.ndarray:
-        if self._grayscale_picture is None:
-            self._grayscale_picture = cv2.imread(self._tif_file, cv2.IMREAD_UNCHANGED)
-        return self._grayscale_picture
-
-    @property
-    def color_picture(self):
-        if self._color_picture is None:
-            self._color_picture = altitudes_to_rgb_array(self.grayscale_picture)
-        return self._color_picture
-
-    @property
-    def file(self) -> str:
-        return self._tif_file
-
-    @property
-    def ds(self) -> Dataset:
-        if self._ds is None:
-            self._ds = gdal.Open(self.file, gdal.GA_ReadOnly)
-
-        return self._ds
-
-    @property
-    def gt(self):
-        if self._gt is None:
-            self._gt = self.ds.GetGeoTransform()
-        return self._gt
-
-    @property
-    def corners(self) -> Dict[str, Tuple[float, float]]:
-        if self._corners is None:
-            self._corners = self._get_corners()
-        return self._corners
-
-    @property
-    def color_palette(self) -> ColorStop:
-        if self._color_palette is None:
-            self._color_palette = ColorPalettes.BROWN_1
-        return self._color_palette
-
-    @color_palette.setter
-    def color_palette(self, value: ColorStop):
-        self._color_palette = value
-
-    @property
-    def level_ranges(self):
-        level_ranges = list(self._topo_layers.keys())
-        return level_ranges
-
-    @property
-    def bounding_box(self) -> Dict[str, float]:
-        if self._bounding_box is None:
-            self._bounding_box = {
-                "north_latitude": self.corners["upper_left"][1],
-                "south_latitude": self.corners["lower_left"][1],
-                "west_longitude": self.corners["upper_left"][0],
-                "east_longitude": self.corners["upper_right"][0],
-            }
-
-        return self._bounding_box
-
-    @property
-    def north_latitude(self):
-        return self.bounding_box["north_latitude"]
-
-    @property
-    def south_latitude(self):
-        return self.bounding_box["south_latitude"]
-
-    @property
-    def east_longitude(self):
-        return self.bounding_box["east_longitude"]
-
-    @property
-    def west_longitude(self):
-        return self.bounding_box["west_longitude"]
-
-    def _get_corners(self):
-        """Return the geographic coordinates of the 4 corners and center."""
-        xsize = self.ds.RasterXSize
-        ysize = self.ds.RasterYSize
-
-        # Pixel to geo coordinates
-        corners = {
-            "upper_left": pixel2coord(self.gt, 0, 0),
-            "upper_right": pixel2coord(self.gt, xsize, 0),
-            "lower_left": pixel2coord(self.gt, 0, ysize),
-            "lower_right": pixel2coord(self.gt, xsize, ysize),
-            "center": pixel2coord(self.gt, xsize // 2, ysize // 2)
-        }
-
-        return corners
-
-    @property
-    def lat_scale(self):
-        """
-        Scale factor to compensate for EPSG:4326 latitude distortion.
-        """
-        lat0 = self.corners["center"][1]  # degrees
-        scale = 1.0 / math.cos(math.radians(lat0))
-        return scale
-
-    def debug_scaling(self):
-        px1, py1 = geo_to_pixel(self.gt,
-                                self.corners["center"][0],
-                                self.corners["center"][1]
-                                )
-
-        px2, py2 = geo_to_pixel(self.gt,
-                                self.corners["center"][0],
-                                self.corners["center"][1] + 0.01
-                                )
-
-        print("Δpy:", py2 - py1)
+                    feat = WaterFeature(feature, self.gt, self.grayscale_picture,
+                                      lat_scale=self.lat_scale, lon_scale=1)
+                    self._water_features.append(feat)
+            except Exception as e:
+                logger.error(f"Error loading water features from {source_file}: {str(e)}")

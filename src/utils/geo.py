@@ -142,3 +142,14 @@ def elevation_at(gt: GeomTransformer, picture: np.ndarray, lon: float, lat: floa
         return float(picture[py, px])
 
     return None
+
+
+def check_coords(gt: GeomTransformer, picture: np.ndarray, coords: List[Tuple[float, float]],
+                 level_range: Tuple[int, int]):
+    """Helper function to check if any coordinate is within elevation range"""
+    min_alt, max_alt = level_range
+    for lon, lat in coords:
+        elev = elevation_at(gt, picture, lon, lat)
+        if elev is not None and min_alt <= elev < max_alt:
+            return True
+    return False

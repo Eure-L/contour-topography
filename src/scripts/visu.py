@@ -43,7 +43,7 @@ def main():
     map.generate_elevation_layers(level_steps=LayerRanges.third_13_3)
 
     # Save its layeres
-    map.save_all_layers(save_path=out_data, combined=combined, remove_inters=True)
+    map.save_all_layers(save_path=out_data, combined=combined, remove_inters=False)
 
 
 if __name__ == "__main__":
