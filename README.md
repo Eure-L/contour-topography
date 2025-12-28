@@ -22,7 +22,7 @@ contour_map = Map(tif_file=tif_data, borders_geojson=border_data, roads_geojson=
 contour_map.road_detail = 0x8B
 contour_map.road_scaling = RoadsWeight.RANKING_1
 
-contour_map.compute_all_layers(level_steps=list(range(556, 2000, 100)))
+contour_map.generate_elevation_layers(level_steps=list(range(556, 2000, 100)))
 contour_map.save_all_layers(save_path=dst, combined=True, for_cut=False)
 ```
 

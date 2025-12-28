@@ -32,8 +32,8 @@ def main():
 
     map.road_detail = 0x8A
     map.road_scaling = RoadsWeight.RANKING_1
-    map.compute_all_layers(level_steps=steps)
-    map.show_roads = False
+    map.generate_elevation_layers(level_steps=steps)
+    map.include_roads = False
     out_data = os.path.join("/tmp/Maps/color_testing/")
 
     for palette_name, palette in ColorPalettes.get_all_palettes().items():

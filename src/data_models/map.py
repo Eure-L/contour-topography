@@ -19,6 +19,7 @@ from shapely.ops import transform as shp_transform
 
 from data_models.color_stop import ColorStop
 from data_models.features import RoadFeature, WaterFeature
+from data_models.features.feature_proecessor import RoadFeatureProcessor, WaterFeatureProcessor, LineFeatureProcessor
 from data_models.features.line_feature import LineFeature
 from defines.canvas_sizes import A3
 from defines.color_palettes import ColorPalettes
@@ -73,9 +74,9 @@ class Map:
     _color_palette: ColorStop = None
 
     # Public properties
-    show_contour_strokes = False
-    show_roads = True
-    show_water_surfaces = True
+    show_contour_lines = False
+    include_roads = True
+    include_water_surfaces = True
     road_detail: RoadDetail = RoadDetail.MEDIUM
     road_scaling = RoadsWeight.RANKING_1
     canevas = A3
@@ -92,11 +93,7 @@ class Map:
     waters_min_size = 500
 
     def __init__(self, tif_file: str,
-                 borders_geojson: str = None,
-                 roads_geojson: str = None,
-                 name: str = None,
-                 waters_geojson: str = None,
-                 line_features_geojsons: List[str] = None):
+                 name: str = None, ):
         """
 
         :param tif_file:            Tif file storing grayscale values
@@ -111,6 +108,10 @@ class Map:
         else:
             name = os.path.split(tif_file)[1]
             self._name = ''.join(name.split('.')[:-1])
+
+        self._road_processor = RoadFeatureProcessor(self.gt, self.grayscale_picture, self.lat_scale)
+        self._water_processor = WaterFeatureProcessor(self.gt, self.grayscale_picture, self.lat_scale)
+        self._line_processor = LineFeatureProcessor(self.gt, self.grayscale_picture, self.lat_scale)
 
     def add_border_features(self, file: str):
         """
@@ -209,7 +210,7 @@ class Map:
         def check_coords(coords):
             """Helper function to check if any coordinate is within elevation range"""
             for lon, lat in coords:
-                elev = elevation_at(self, lon, lat)
+                elev = elevation_at(self.gt, self.grayscale_picture, lon, lat)
                 if elev is not None and min_alt <= elev < max_alt:
                     return True
             return False
@@ -253,7 +254,7 @@ class Map:
             svg_color = f"rgb({r},{g},{b})"
             self.save_map_as_svgs(contour, save_file,
                                   fill_color=svg_color,
-                                  stroke_color=svg_color if not self.show_contour_strokes else "black",
+                                  stroke_color=svg_color if not self.show_contour_lines else "black",
                                   fill=True)
         else:
             if self.combined_grayscale_cut:
@@ -266,7 +267,7 @@ class Map:
 
             self.save_map_as_svgs(contour, save_file,
                                   fill_color=svg_color,
-                                  stroke_color="black" if self.show_contour_strokes else svg_color,
+                                  stroke_color="black" if self.show_contour_lines else svg_color,
                                   fill=fill)
 
     def save_map_as_svgs(self, contours: np.ndarray, filename: str, fill: bool,
@@ -421,7 +422,7 @@ class Map:
             saved_layers.append(file)
             self.save_layer_as_svg(contour, (start, top), file)
 
-            if self.show_roads:
+            if self.include_roads:
                 layer_roads = self._road_layers.get(level_range, [])
                 if layer_roads:
                     self.append_roads_to_svg(file, layer_roads)
@@ -430,7 +431,7 @@ class Map:
                 if layer_lf:
                     self.append_lfs_to_svg(file, layer_lf)
 
-            if self.show_water_surfaces:
+            if self.include_water_surfaces:
                 layer_waters = self._water_layers.get(level_range, [])
                 if layer_waters:
                     self.append_water_to_svg(file, layer_waters)
@@ -485,7 +486,7 @@ class Map:
         if self.rotate != 0:
             batch_rotate_svg(saved_layers, saved_layers, self.rotate)
 
-    def compute_all_layers(self, level_steps: List[int]):
+    def generate_elevation_layers(self, level_steps: List[int]):
         """
         Compute all elevation layers based on given level steps.
 
@@ -501,16 +502,16 @@ class Map:
 
             print(f"Processing Level {level_steps[idx]}m")
             level_range = (level_steps[idx - 1], level_steps[-1])
-            self.compute_base_layer(level_range)
+            self.generate_elevation_contours(level_range)
 
-        if self.show_roads:
+        if self.include_roads:
             self.compute_road_layers()
             self.compute_lf_layers()
 
-        if self.show_water_surfaces:
+        if self.include_water_surfaces:
             self.compute_water_surfaces()
 
-    def compute_base_layer(self, level_range: Tuple[Union[float, int], Union[float, int]]):
+    def generate_elevation_contours(self, level_range: Tuple[Union[float, int], Union[float, int]]):
         """
         Compute contour for a specific elevation range.
 
@@ -541,22 +542,35 @@ class Map:
         Populates self._road_layers with road segments that fall within
         each elevation layer's range.
         """
+
+        # level_ranges = list(self._topo_layers.keys())
+        # next_level_ranges = level_ranges[1:]
+        # next_level_ranges.append(level_ranges[-1])
+        #
+        # for idx, level_range in enumerate(level_ranges):
+        #     start, end = level_range
+        #     nex_start, nex_end = next_level_ranges[idx]
+        #
+        #     for road in self.roads:
+        #         if road.hierarchy > self.road_detail.value:
+        #             continue
+        #
+        #         if self.feature_in_elevation(road.geometry, (start, nex_start)):
+        #             for svg_path in road.paths:
+        #                 self._road_layers[level_range].append((road.hierarchy, svg_path))
+
         self._road_layers = {lr: [] for lr in self._topo_layers.keys()}
-        level_ranges = list(self._topo_layers.keys())
-        next_level_ranges = level_ranges[1:]
-        next_level_ranges.append(level_ranges[-1])
 
-        for idx, level_range in enumerate(level_ranges):
-            start, end = level_range
-            nex_start, nex_end = next_level_ranges[idx]
+        for road in self.roads:
+            if road.hierarchy > self.road_detail.value:
+                continue
 
-            for road in self.roads:
-                if road.hierarchy > self.road_detail.value:
-                    continue
+            possible_level_ranges = self._road_processor.get_layer_key(road.feature, self.level_ranges)
+            svg_paths = self._road_processor.process_feature(road.feature)
 
-                if self.feature_in_elevation(road.geometry, (start, nex_start)):
-                    for svg_path in road.paths:
-                        self._road_layers[level_range].append((road.hierarchy, svg_path))
+            for level_range in possible_level_ranges:
+                for svg_path in svg_paths:
+                    self._road_layers[level_range].append((road.hierarchy, svg_path))
 
     def compute_lf_layers(self):
         """
@@ -565,19 +579,27 @@ class Map:
         Populates self._road_layers with road segments that fall within
         each elevation layer's range.
         """
+        # self._lf_layers = {lr: [] for lr in self._topo_layers.keys()}
+        # level_ranges = list(self._topo_layers.keys())
+        # next_level_ranges = level_ranges[1:]
+        # next_level_ranges.append(level_ranges[-1])
+        #
+        # for idx, level_range in enumerate(level_ranges):
+        #     start, end = level_range
+        #     nex_start, nex_end = next_level_ranges[idx]
+        #
+        #     for lf in self.line_features:
+        #         if self.feature_in_elevation(lf.geometry, (start, nex_start)):
+        #             for svg_path in lf.paths:
+        #                 self._lf_layers[level_range].append(svg_path)
+
         self._lf_layers = {lr: [] for lr in self._topo_layers.keys()}
-        level_ranges = list(self._topo_layers.keys())
-        next_level_ranges = level_ranges[1:]
-        next_level_ranges.append(level_ranges[-1])
 
-        for idx, level_range in enumerate(level_ranges):
-            start, end = level_range
-            nex_start, nex_end = next_level_ranges[idx]
-
-            for lf in self.line_features:
-                if self.feature_in_elevation(lf.geometry, (start, nex_start)):
-                    for svg_path in lf.paths:
-                        self._lf_layers[level_range].append(svg_path)
+        for lf in self.line_features:
+            possible_level_ranges = self._line_processor.get_layer_key(lf.feature, self.level_ranges)
+            for level_range in possible_level_ranges:
+                svg_paths = self._line_processor.process_feature(lf.feature)
+                self._lf_layers[level_range].extend(svg_paths)
 
     def compute_water_surfaces(self):
         """
@@ -587,21 +609,28 @@ class Map:
         Populates self._water_layers with water surfaces that fall within
         each elevation layer's range.
         """
+        # self._water_layers = {lr: [] for lr in self._topo_layers.keys()}
+        # level_ranges = list(self._topo_layers.keys())
+        # next_level_ranges = level_ranges[1:]
+        # next_level_ranges.append(level_ranges[-1])
+        #
+        # for idx, level_range in enumerate(level_ranges):
+        #     start, end = level_range
+        #     nex_start, nex_end = next_level_ranges[idx]
+        #
+        #     for water in self.water_surfaces:
+        #         # Check if water feature intersects with this elevation range
+        #         if self.feature_in_elevation(water.geometry, (start, nex_start)):
+        #             # Convert water geometry to SVG paths
+        #             svg_paths = water.to_svg_paths()
+        #             self._water_layers[level_range].extend(svg_paths)
+
         self._water_layers = {lr: [] for lr in self._topo_layers.keys()}
-        level_ranges = list(self._topo_layers.keys())
-        next_level_ranges = level_ranges[1:]
-        next_level_ranges.append(level_ranges[-1])
-
-        for idx, level_range in enumerate(level_ranges):
-            start, end = level_range
-            nex_start, nex_end = next_level_ranges[idx]
-
-            for water in self.water_surfaces:
-                # Check if water feature intersects with this elevation range
-                if self.feature_in_elevation(water.geometry, (start, nex_start)):
-                    # Convert water geometry to SVG paths
-                    svg_paths = water.to_svg_paths()
-                    self._water_layers[level_range].extend(svg_paths)
+        for water in self.water_surfaces:
+            possible_level_ranges = self._water_processor.get_layer_key(water.feature, self.level_ranges)
+            for level_range in possible_level_ranges:
+                svg_paths = self._water_processor.process_feature(water.feature)
+                self._water_layers[level_range].extend(svg_paths)
 
     @property
     def name(self):
@@ -620,92 +649,109 @@ class Map:
     @property
     def borders_polygons(self):
         if self._borders_polygons is None:
-            self._borders_polygons = []
-
-            if self._border_sources is None:
-                return self._borders_polygons
-
-            for source_file in self._border_sources:
-                # Todo check source file type and handle it acordilngly
-                with open(source_file, 'r') as f:
-                    geojson = json.load(f)
-                for feature in geojson['features']:
-                    geom = shape(feature['geometry'])
-                    # Scale latitude ONLY
-                    geom = shp_transform(
-                        lambda lon, lat: (lon, lat * self.lat_scale),
-                        geom
-                    )
-                    self._borders_polygons.append(geom)
-
+            self._load_borders_polygons()
         return self._borders_polygons
 
     @property
     def roads(self) -> List[RoadFeature]:
         if self._road_features is None:
-            self._road_features = []
-            if self._road_sources is None:
-                return self._road_features
-
-            for source_file in self._road_sources:
-                # Todo check source file type and handle it acordilngly
-                with open(source_file, 'r') as f:
-                    geojson = json.load(f)
-
-                for feature in geojson['features']:
-                    road = RoadFeature(feature, gt=self.gt, lat_scale=self.lat_scale, lon_scale=1)
-                    self._road_features.append(road)
-
+            self._load_road_features()
         return self._road_features
 
     @property
     def line_features(self) -> List[LineFeature]:
         if self._line_features is None:
-            self._line_features = []
-            if self._line_sources is None:
-                return self._line_features
-
-            for source_file in self._line_sources:
-                # Todo check source file type and handle it acordilngly
-                with open(source_file, 'r') as f:
-                    geojson = json.load(f)
-
-                for feature in geojson['features']:
-                    line_feature = LineFeature(feature, gt=self.gt, lat_scale=self.lat_scale, lon_scale=1)
-                    self._line_features.append(line_feature)
-
+            self._load_line_features()
         return self._line_features
 
     @property
     def water_surfaces(self) -> List[WaterFeature]:
         if self._water_features is None:
-            self._water_features = []
-            if self._water_sources is None:
-                return self._water_features
-
-            for source_file in self._water_sources:
-                # Todo check source file type and handle it acordilngly
-                with open(source_file, 'r') as f:
-                    geojson = json.load(f)
-
-                for feature in geojson['features']:
-                    # Aplies filters on water bodies to include (lots of swamps and ponds..)
-                    wb = feature["properties"]['WATER_BODY_TYPE']
-                    wb = WaterBodyType(wb)
-
-                    if wb in self.filtered_water_bodies:
-                        continue
-                    if wb in self.size_filtered_water_bodies:
-                        s = len(feature["geometry"]['coordinates'][0])
-                        id = feature["properties"]['OBJECTID']
-                        wbname = feature["properties"]['WATER_BODY_NAME']
-                        if s < self.waters_min_size:
-                            continue
-
-                    feat = WaterFeature(feature, gt=self.gt, lat_scale=self.lat_scale, lon_scale=1)
-                    self._water_features.append(feat)
-
+            self._load_water_features()
         return self._water_features
+
+    def _load_borders_polygons(self) -> None:
+        """
+        Load and process border polygons features from source files
+        """
+        self._borders_polygons = []
+
+        if self._border_sources is None:
+            return
+
+        for source_file in self._border_sources:
+            # Todo check source file type and handle it acordilngly
+            with open(source_file, 'r') as f:
+                geojson = json.load(f)
+            for feature in geojson['features']:
+                geom = shape(feature['geometry'])
+                # Scale latitude ONLY
+                geom = shp_transform(lambda lon, lat: (lon, lat * self.lat_scale), geom)
+                self._borders_polygons.append(geom)
+
+    def _load_road_features(self) -> None:
+        """
+        Load and process road features from source files
+        """
+        self._road_features = []
+        if self._road_sources is None:
+            return
+        for source_file in self._road_sources:
+            # Todo check source file type and handle it acordilngly
+            with open(source_file, 'r') as f:
+                geojson = json.load(f)
+
+            for feature in geojson['features']:
+                road = RoadFeature(feature, gt=self.gt, lat_scale=self.lat_scale, lon_scale=1)
+                self._road_features.append(road)
+
+    def _load_line_features(self) -> None:
+        """
+        Load and process line features from source files
+        """
+        self._line_features = []
+        if self._line_sources is None:
+            return None
+
+        for source_file in self._line_sources:
+            # Todo check source file type and handle it acordilngly
+            with open(source_file, 'r') as f:
+                geojson = json.load(f)
+
+            for feature in geojson['features']:
+                line_feature = LineFeature(feature, gt=self.gt, lat_scale=self.lat_scale, lon_scale=1)
+                self._line_features.append(line_feature)
+
+    def _load_water_features(self) -> None:
+        """
+        Load and process water features from source files
+        """
+
+        self._water_features = []
+        if self._water_sources is None:
+            return
+
+        for source_file in self._water_sources:
+            # Todo check source file type and handle it acordilngly
+            with open(source_file, 'r') as f:
+                geojson = json.load(f)
+
+            for feature in geojson['features']:
+                # Aplies filters on water bodies to include (lots of swamps and ponds..)
+                wb = feature["properties"]['WATER_BODY_TYPE']
+                wb = WaterBodyType(wb)
+
+                if wb in self.filtered_water_bodies:
+                    continue
+                if wb in self.size_filtered_water_bodies:
+                    s = len(feature["geometry"]['coordinates'][0])
+                    id = feature["properties"]['OBJECTID']
+                    wbname = feature["properties"]['WATER_BODY_NAME']
+                    if s < self.waters_min_size:
+                        continue
+
+                feat = WaterFeature(feature, gt=self.gt, lat_scale=self.lat_scale, lon_scale=1)
+                self._water_features.append(feat)
 
     @property
     def width(self):
@@ -765,6 +811,11 @@ class Map:
     @color_palette.setter
     def color_palette(self, value: ColorStop):
         self._color_palette = value
+
+    @property
+    def level_ranges(self):
+        level_ranges = list(self._topo_layers.keys())
+        return level_ranges
 
     @property
     def bounding_box(self) -> Dict[str, float]:

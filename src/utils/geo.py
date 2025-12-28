@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING, Tuple, List, Union
 
+import numpy as np
+
 if TYPE_CHECKING:
     from data_models.map import Map
 
@@ -121,21 +123,22 @@ def line_to_svg_path(gt: GeomTransformer, line: Union[LineString, BaseGeometry])
     return d
 
 
-def elevation_at(map: 'Map', lon: float, lat: float) -> Union[float, None]:
+def elevation_at(gt: GeomTransformer, picture: np.ndarray, lon: float, lat: float) -> Union[float, None]:
     """
     Get elevation value at specific geographic coordinates.
 
     Args:
-        map: Ekevation Map object to check elevation on
+        gt: GeomTransformer object
+        picture: 2d array object to check elevation on
         lon: Longitude coordinate
         lat: Latitude coordinate
 
     Returns:
         Elevation value in meters, or None if coordinates are out of bounds
     """
-    px, py = geo_to_pixel(map.gt, lon, lat)
-
-    if 0 <= px < map.width and 0 <= py < map.height:
-        return float(map.grayscale_picture[py, px])
+    px, py = geo_to_pixel(gt, lon, lat)
+    width, height = picture.shape
+    if 0 <= px < width and 0 <= py < height:
+        return float(picture[py, px])
 
     return None

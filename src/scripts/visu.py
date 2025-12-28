@@ -29,10 +29,10 @@ def main():
     map.cut_width_mm = 0.5
     map.road_detail = RoadDetail.LOW
     map.road_scaling = RoadsWeight.RANKING_1
-    map.show_roads = True
-    map.show_water_surfaces = True
+    map.include_roads = True
+    map.include_water_surfaces = True
     map.for_cut = False
-    map.show_contour_strokes = False
+    map.show_contour_lines = False
     map.filtered_water_bodies = [WB.DAM]
     map.size_filtered_water_bodies = [WB.CREEK, WB.POND]
     map.waters_min_size = 20
@@ -40,7 +40,7 @@ def main():
     map.always_stroke_to_paths = False
 
     # Compute its layers
-    map.compute_all_layers(level_steps=LayerRanges.third_13_3)
+    map.generate_elevation_layers(level_steps=LayerRanges.third_13_3)
 
     # Save its layeres
     map.save_all_layers(save_path=out_data, combined=combined, remove_inters=True)
