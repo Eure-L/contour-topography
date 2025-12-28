@@ -95,9 +95,7 @@ class Map:
     def __init__(self, tif_file: str,
                  name: str = None, ):
         """
-
         :param tif_file:            Tif file storing grayscale values
-        :param borders_geojson:     optionnal Geojson describing all the borders of the given Map
         :param name:                Optionnal, Sets the name of the map for file saving
         """
         self._tif_file = tif_file
@@ -116,8 +114,10 @@ class Map:
     def add_border_features(self, file: str):
         """
         Adds a given file to the map's borders sources list.
-        :param file: file containing border data (geojson)
-        :return:
+
+        :param file: Path to the GeoJSON file containing border data
+        :type file: str
+        :return: None
         """
         if self._border_sources is None:
             self._border_sources = []
@@ -126,8 +126,10 @@ class Map:
     def add_road_features(self, file: str):
         """
         Adds a given file to the map's roads sources list.
-        :param file: file containing roads data (geojson)
-        :return:
+
+        :param file: Path to the GeoJSON file containing roads data
+        :type file: str
+        :return: None
         """
         if self._road_sources is None:
             self._road_sources = []
@@ -136,8 +138,10 @@ class Map:
     def add_line_features(self, file: str):
         """
         Adds a given file to the map's generic lines sources list.
-        :param file: file containing lines data (geojson)
-        :return:
+
+        :param file: Path to the GeoJSON file containing line features data
+        :type file: str
+        :return: None
         """
         if self._line_sources is None:
             self._line_sources = []
@@ -146,8 +150,10 @@ class Map:
     def add_water_surface_features(self, file: str):
         """
         Adds a given file to the map's water surfaces sources list.
-        :param file: file containing waters data (geojson)
-        :return:
+
+        :param file: Path to the GeoJSON file containing water surface data
+        :type file: str
+        :return: None
         """
         if self._water_sources is None:
             self._water_sources = []
@@ -155,9 +161,11 @@ class Map:
 
     def add_border_features_list(self, files: List[str]):
         """
-        Adds a given file list to the map's borders sources list.
-        :param files: file list containing border data (geojson)
-        :return:
+        Adds a list of files to the map's borders sources list.
+
+        :param files: List of paths to GeoJSON files containing border data
+        :type files: List[str]
+        :return: None
         """
 
         for file in files:
@@ -165,9 +173,11 @@ class Map:
 
     def add_road_features_list(self, files: List[str]):
         """
-        Adds a given file list to the map's roads sources list.
-        :param files: file list containing roads data (geojson)
-        :return:
+        Adds a list of files to the map's roads sources list.
+
+        :param files: List of paths to GeoJSON files containing roads data
+        :type files: List[str]
+        :return: None
         """
 
         for file in files:
@@ -175,9 +185,11 @@ class Map:
 
     def add_line_features_list(self, files: List[str]):
         """
-        Adds a given file list to the map's generic lines sources list.
-        :param files: file list containing lines data (geojson)
-        :return:
+        Adds a list of files to the map's generic lines sources list.
+
+        :param files: List of paths to GeoJSON files containing line features data
+        :type files: List[str]
+        :return: None
         """
 
         for file in files:
@@ -185,9 +197,11 @@ class Map:
 
     def add_water_surface_features_list(self, files: List[str]):
         """
-        Adds a given file list to the map's water surfaces sources list.
-        :param files: file list containing waters data (geojson)
-        :return:
+        Adds a list of files to the map's water surfaces sources list.
+
+        :param files: List of paths to GeoJSON files containing water surface data
+        :type files: List[str]
+        :return: None
         """
 
         for file in files:
@@ -198,13 +212,14 @@ class Map:
         """
         Check if any part of a feature (line or polygon) lies within the specified elevation range.
 
-        Args:
-            feature: Shapely geometry object (LineString, Polygon, etc.)
-            level_range: Tuple of (min_elevation, max_elevation)
-
-        Returns:
-            True if any part of the feature is within elevation range, False otherwise
+        :param feature: Shapely geometry object (LineString, Polygon, etc.)
+        :type feature: Union[LineString, Polygon, BaseGeometry]
+        :param level_range: Tuple of (min_elevation, max_elevation)
+        :type level_range: Tuple[float, float]
+        :return: True if any part of the feature is within elevation range, False otherwise
+        :rtype: bool
         """
+
         min_alt, max_alt = level_range
 
         def check_coords(coords):
@@ -241,10 +256,10 @@ class Map:
         """
         Save a contour layer as an SVG file.
 
-        Args:
-            contour: Numpy array of contour points
-            layer_range: Elevation range tuple (min, max)
-            save_file: Output SVG file path
+        :param contour: Numpy array of contour points
+        :param layer_range: Elevation range tuple (min, max)
+        :param save_file: Output SVG file path
+        :return: None
         """
         min_alt = self.grayscale_picture.min()
         max_alt = self.grayscale_picture.max()
@@ -276,14 +291,13 @@ class Map:
         """
         Save contours as SVG file with proper scaling and viewbox.
 
-        Args:
-            contours: List of contour arrays
-            filename: Output SVG file path
-            fill: Whether to fill the contours
-            fill_color: Stroke/fill color
-            stroke_color: Color of the stroke
+        :param contours: List of contour arrays
+        :param filename: Output SVG file path
+        :param fill: Whether to fill the contours
+        :param fill_color: Stroke/fill color
+        :param stroke_color: Color of the stroke
+        :return: None
         """
-
         stroke_width_mm = round(self.cut_width_mm, 1)
         height, width = self.grayscale_picture.shape
         viewbox_height = int(height * self.lat_scale)
@@ -307,9 +321,9 @@ class Map:
         """
         Append road paths to an existing SVG file.
 
-        Args:
-            svg_file: Path to existing SVG file
-            road_paths: List of tuples (hierarchy, svg_path_data)
+        :param svg_file: Path to existing SVG file
+        :param road_paths: List of tuples (hierarchy, svg_path_data)
+        :return: None
         """
 
         tree = ET.parse(svg_file)
@@ -331,9 +345,9 @@ class Map:
         """
         Append generic line features paths to an existing SVG file.
 
-        Args:
-            svg_file: Path to existing SVG file
-            lf_paths: List of line path (svg_path_data)
+        :param svg_file: Path to existing SVG file
+        :param lf_paths: List of line path (svg_path_data)
+        :return: None
         """
 
         tree = ET.parse(svg_file)
@@ -353,9 +367,9 @@ class Map:
         """
         Append water surfaces to an existing SVG file.
 
-        Args:
-            svg_file: Path to existing SVG file
-            water_paths: List of SVG path data strings for water surfaces
+        :param svg_file: Path to existing SVG file
+        :param water_paths: List of SVG path data strings for water surfaces
+        :return: None
         """
         tree = ET.parse(svg_file)
         root = tree.getroot()
@@ -373,8 +387,7 @@ class Map:
         """
         Create a mask where pixels inside borders are 255, outside are 0.
 
-        Returns:
-            Numpy array representing the border mask
+        :return: Numpy array representing the border mask
         """
 
         height, width = self.grayscale_picture.shape
@@ -385,18 +398,14 @@ class Map:
         xs = np.arange(width)
         ys = np.arange(height)
         xx, yy = np.meshgrid(xs, ys)
-
         gt = self.gt
-
         # Pixel → lon/lat
         x = gt[0] + xx * gt[1]
         y = gt[3] + yy * gt[5]
-
         # Apply latitude scale
         y = y * self.lat_scale
 
         multipoly = MultiPolygon(self.borders_polygons)
-
         inside = vectorized.contains(multipoly, x, y)
 
         return (inside.astype(np.uint8) * 255)
@@ -405,10 +414,10 @@ class Map:
         """
         Save all elevation layers as SVG files.
 
-        Args:
-            save_path: Directory to save SVG files
-            combined: Whether to combine all layers into one SVG
-            remove_inters: Whether to remove intermediary built layers after combining
+        :param save_path: Directory to save SVG files
+        :param combined: Whether to combine all layers into one SVG
+        :param remove_inters: Whether to remove intermediary built layers after combining
+        :return: None
         """
         saved_layers = []
 
@@ -490,10 +499,9 @@ class Map:
         """
         Compute all elevation layers based on given level steps.
 
-        Args:
-            level_steps: List of elevation values defining layer boundaries
+        :param level_steps: List of elevation values defining layer boundaries
+        :return: None
         """
-
         self._topo_layers = {}
 
         for idx, _ in enumerate(level_steps):
@@ -515,8 +523,8 @@ class Map:
         """
         Compute contour for a specific elevation range.
 
-        Args:
-            level_range: Tuple of (min_elevation, max_elevation)
+        :param level_range: Tuple of (min_elevation, max_elevation)
+        :return: None
         """
         mask = np.zeros_like(self.grayscale_picture, dtype=np.uint8)
 
@@ -538,26 +546,11 @@ class Map:
     def compute_road_layers(self):
         """
         Compute road layers for each elevation layer.
-
         Populates self._road_layers with road segments that fall within
         each elevation layer's range.
-        """
 
-        # level_ranges = list(self._topo_layers.keys())
-        # next_level_ranges = level_ranges[1:]
-        # next_level_ranges.append(level_ranges[-1])
-        #
-        # for idx, level_range in enumerate(level_ranges):
-        #     start, end = level_range
-        #     nex_start, nex_end = next_level_ranges[idx]
-        #
-        #     for road in self.roads:
-        #         if road.hierarchy > self.road_detail.value:
-        #             continue
-        #
-        #         if self.feature_in_elevation(road.geometry, (start, nex_start)):
-        #             for svg_path in road.paths:
-        #                 self._road_layers[level_range].append((road.hierarchy, svg_path))
+        :return: None
+        """
 
         self._road_layers = {lr: [] for lr in self._topo_layers.keys()}
 
@@ -575,23 +568,11 @@ class Map:
     def compute_lf_layers(self):
         """
         Compute generic line features layers for each elevation layer.
-
         Populates self._road_layers with road segments that fall within
         each elevation layer's range.
+
+        :return: None
         """
-        # self._lf_layers = {lr: [] for lr in self._topo_layers.keys()}
-        # level_ranges = list(self._topo_layers.keys())
-        # next_level_ranges = level_ranges[1:]
-        # next_level_ranges.append(level_ranges[-1])
-        #
-        # for idx, level_range in enumerate(level_ranges):
-        #     start, end = level_range
-        #     nex_start, nex_end = next_level_ranges[idx]
-        #
-        #     for lf in self.line_features:
-        #         if self.feature_in_elevation(lf.geometry, (start, nex_start)):
-        #             for svg_path in lf.paths:
-        #                 self._lf_layers[level_range].append(svg_path)
 
         self._lf_layers = {lr: [] for lr in self._topo_layers.keys()}
 
@@ -605,25 +586,11 @@ class Map:
         """
         Compute water surfaces for each elevation layer.
         If a water body spans multiple layers (e.g., flowing river), it is included in all relevant layers.
-
         Populates self._water_layers with water surfaces that fall within
         each elevation layer's range.
+
+        :return: None
         """
-        # self._water_layers = {lr: [] for lr in self._topo_layers.keys()}
-        # level_ranges = list(self._topo_layers.keys())
-        # next_level_ranges = level_ranges[1:]
-        # next_level_ranges.append(level_ranges[-1])
-        #
-        # for idx, level_range in enumerate(level_ranges):
-        #     start, end = level_range
-        #     nex_start, nex_end = next_level_ranges[idx]
-        #
-        #     for water in self.water_surfaces:
-        #         # Check if water feature intersects with this elevation range
-        #         if self.feature_in_elevation(water.geometry, (start, nex_start)):
-        #             # Convert water geometry to SVG paths
-        #             svg_paths = water.to_svg_paths()
-        #             self._water_layers[level_range].extend(svg_paths)
 
         self._water_layers = {lr: [] for lr in self._topo_layers.keys()}
         for water in self.water_surfaces:
@@ -680,7 +647,7 @@ class Map:
             return
 
         for source_file in self._border_sources:
-            # Todo check source file type and handle it acordilngly
+            # Todo check source file type and handle it accordingly
             with open(source_file, 'r') as f:
                 geojson = json.load(f)
             for feature in geojson['features']:
@@ -697,7 +664,7 @@ class Map:
         if self._road_sources is None:
             return
         for source_file in self._road_sources:
-            # Todo check source file type and handle it acordilngly
+            # Todo check source file type and handle it accordingly
             with open(source_file, 'r') as f:
                 geojson = json.load(f)
 
@@ -714,7 +681,7 @@ class Map:
             return None
 
         for source_file in self._line_sources:
-            # Todo check source file type and handle it acordilngly
+            # Todo check source file type and handle it accordingly
             with open(source_file, 'r') as f:
                 geojson = json.load(f)
 
