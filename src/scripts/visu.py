@@ -36,7 +36,7 @@ def main():
     map.filtered_water_bodies = [WB.DAM]
     map.size_filtered_water_bodies = [WB.CREEK, WB.POND]
     map.waters_min_size = 20
-    map.rotate = 270
+    map.rotate = 0
     map.always_stroke_to_paths = False
 
     # Compute its layers

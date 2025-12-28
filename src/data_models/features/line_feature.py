@@ -1,48 +1,17 @@
-from typing import List
+from typing import List, Tuple
 
-from shapely import LineString
-
-from data_models.features.base_feature import BaseFeature
-from utils.geo import pixel2coord_scaled, geo_to_pixel
+from .base_feature import BaseFeature
+from ..processors.line_processor import LineFeatureProcessor
 
 
 class LineFeature(BaseFeature):
     """Specialized class for road features"""
-    _paths: List[str] = None
-    lat_scaler = None
-    lon_scaler = None
-
-    def to_svg_paths(self) -> List[str]:
-        """Convert road geometry to SVG paths"""
-        paths = []
-        geom = self.feature['geometry']['coordinates']
-        if self.geometry.geom_type == "LineString":
-            lines = [geom]
-        elif self.geometry.geom_type == "MultiLineString":
-            lines = self.feature['geometry']['coordinates']
-        else:
-            return paths
-
-        for line in lines:
-            path_parts = []
-            for lon, lat in line:
-                px, py = geo_to_pixel(self.gt, lon, lat)
-                pxpy_str = f"{px},{int(py * self.lat_scale)}"
-
-                # prevents duplicate points in the same road line
-                if pxpy_str not in path_parts:
-                    path_parts.append(pxpy_str)
-
-            if len(path_parts) > 1:
-                d = "M " + " L ".join(path_parts)
-                paths.append(d)
-
-        return paths
-
 
     @property
-    def paths(self) -> List[str]:
-        """Get road hierarchy level"""
-        if self._paths is None:
-            self._paths = self.to_svg_paths()
-        return self._paths
+    def processor(self) -> LineFeatureProcessor:
+        """Get the processor for this feature type"""
+        return LineFeatureProcessor(self.gt, self.picture, self.lat_scale)
+
+    def get_layer_keys(self, level_ranges: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+        """Get elevation layer keys for this feature using the processor"""
+        return self.processor.get_layer_key(self.feature, level_ranges)

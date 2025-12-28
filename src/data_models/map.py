@@ -19,7 +19,6 @@ from shapely.ops import transform as shp_transform
 
 from data_models.color_stop import ColorStop
 from data_models.features import RoadFeature, WaterFeature
-from data_models.features.feature_proecessor import RoadFeatureProcessor, WaterFeatureProcessor, LineFeatureProcessor
 from data_models.features.line_feature import LineFeature
 from defines.canvas_sizes import A3
 from defines.color_palettes import ColorPalettes
@@ -106,10 +105,6 @@ class Map:
         else:
             name = os.path.split(tif_file)[1]
             self._name = ''.join(name.split('.')[:-1])
-
-        self._road_processor = RoadFeatureProcessor(self.gt, self.grayscale_picture, self.lat_scale)
-        self._water_processor = WaterFeatureProcessor(self.gt, self.grayscale_picture, self.lat_scale)
-        self._line_processor = LineFeatureProcessor(self.gt, self.grayscale_picture, self.lat_scale)
 
     def add_border_features(self, file: str):
         """
@@ -554,16 +549,16 @@ class Map:
 
         self._road_layers = {lr: [] for lr in self._topo_layers.keys()}
 
-        for road in self.roads:
-            if road.hierarchy > self.road_detail.value:
+        for road_feat in self.roads:
+            if road_feat.hierarchy > self.road_detail.value:
                 continue
 
-            possible_level_ranges = self._road_processor.get_layer_key(road.feature, self.level_ranges)
-            svg_paths = self._road_processor.process_feature(road.feature)
+            possible_level_ranges = road_feat.get_layer_keys(self.level_ranges)
+            svg_paths = road_feat.paths
 
             for level_range in possible_level_ranges:
                 for svg_path in svg_paths:
-                    self._road_layers[level_range].append((road.hierarchy, svg_path))
+                    self._road_layers[level_range].append((road_feat.hierarchy, svg_path))
 
     def compute_lf_layers(self):
         """
@@ -576,10 +571,10 @@ class Map:
 
         self._lf_layers = {lr: [] for lr in self._topo_layers.keys()}
 
-        for lf in self.line_features:
-            possible_level_ranges = self._line_processor.get_layer_key(lf.feature, self.level_ranges)
+        for line_feat in self.line_features:
+            possible_level_ranges = line_feat.get_layer_keys(self.level_ranges)
             for level_range in possible_level_ranges:
-                svg_paths = self._line_processor.process_feature(lf.feature)
+                svg_paths = line_feat.paths
                 self._lf_layers[level_range].extend(svg_paths)
 
     def compute_water_surfaces(self):
@@ -593,10 +588,10 @@ class Map:
         """
 
         self._water_layers = {lr: [] for lr in self._topo_layers.keys()}
-        for water in self.water_surfaces:
-            possible_level_ranges = self._water_processor.get_layer_key(water.feature, self.level_ranges)
+        for water_feat in self.water_surfaces:
+            possible_level_ranges = water_feat.get_layer_keys(self.level_ranges)
             for level_range in possible_level_ranges:
-                svg_paths = self._water_processor.process_feature(water.feature)
+                svg_paths = water_feat.paths
                 self._water_layers[level_range].extend(svg_paths)
 
     @property
@@ -669,7 +664,7 @@ class Map:
                 geojson = json.load(f)
 
             for feature in geojson['features']:
-                road = RoadFeature(feature, gt=self.gt, lat_scale=self.lat_scale, lon_scale=1)
+                road = RoadFeature(feature, self.gt, self.grayscale_picture, lat_scale=self.lat_scale, lon_scale=1)
                 self._road_features.append(road)
 
     def _load_line_features(self) -> None:
@@ -686,8 +681,10 @@ class Map:
                 geojson = json.load(f)
 
             for feature in geojson['features']:
-                line_feature = LineFeature(feature, gt=self.gt, lat_scale=self.lat_scale, lon_scale=1)
+                line_feature = LineFeature(feature, self.gt, self.grayscale_picture, lat_scale=self.lat_scale,
+                                           lon_scale=1)
                 self._line_features.append(line_feature)
+        return None
 
     def _load_water_features(self) -> None:
         """
@@ -717,7 +714,7 @@ class Map:
                     if s < self.waters_min_size:
                         continue
 
-                feat = WaterFeature(feature, gt=self.gt, lat_scale=self.lat_scale, lon_scale=1)
+                feat = WaterFeature(feature, self.gt, self.grayscale_picture, lat_scale=self.lat_scale, lon_scale=1)
                 self._water_features.append(feat)
 
     @property

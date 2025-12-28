@@ -1,6 +1,7 @@
-from typing import List
+from typing import List, Tuple
 
-from data_models.features.line_feature import LineFeature
+from ..processors.road_processor import RoadFeatureProcessor
+from .line_feature import LineFeature
 
 
 class RoadFeature(LineFeature):
@@ -13,8 +14,10 @@ class RoadFeature(LineFeature):
         return int(self.properties.get("HIERARCHY_ID", "0"), 16)
 
     @property
-    def paths(self) -> List[str]:
-        """Get road hierarchy level"""
-        if self._paths is None:
-            self._paths = self.to_svg_paths()
-        return self._paths
+    def processor(self) -> RoadFeatureProcessor:
+        """Get the processor for this feature type"""
+        return RoadFeatureProcessor(self.gt, self.picture, self.lat_scale)
+
+    def get_layer_keys(self, level_ranges: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+        """Get elevation layer keys for this feature using the processor"""
+        return self.processor.get_layer_key(self.feature, level_ranges)

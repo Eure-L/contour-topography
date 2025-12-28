@@ -1,50 +1,19 @@
-from typing import List, Dict
+from typing import List, Tuple
 
-from osgeo.ogr import GeomTransformer
-
-from data_models.features.base_feature import BaseFeature
-from utils.geo import geo_to_pixel
+from .base_feature import BaseFeature
+from ..processors.water_processor import WaterFeatureProcessor
 
 
 class WaterFeature(BaseFeature):
     """Specialized class for water body features"""
 
-    def to_svg_paths(self) -> List[str]:
-        """Convert water geometry to SVG paths"""
-        paths = []
-        geom = self.geometry
 
-        if geom.geom_type == "Polygon":
-            polygons = [geom]
-        elif geom.geom_type == "MultiPolygon":
-            polygons = list(geom.geoms)
-        else:
-            return paths
+    @property
+    def processor(self) -> WaterFeatureProcessor:
+        """Get the processor for this feature type"""
+        return WaterFeatureProcessor(self.gt, self.picture, self.lat_scale)
 
-        for polygon in polygons:
-            # Process exterior ring
-            path_parts = []
-            for lon, lat in polygon.exterior.coords:
-                px, py = geo_to_pixel(self.gt, lon, lat)
-                pxpy_str = f"{px},{int(py * self.lat_scale)}"
-                if pxpy_str not in path_parts:
-                    path_parts.append(pxpy_str)
 
-            if len(path_parts) > 1:
-                d = "M " + " L ".join(path_parts) + " Z"
-                paths.append(d)
-
-            # Process interior rings (holes)
-            for interior in polygon.interiors:
-                path_parts = []
-                for lon, lat in interior.coords:
-                    px, py = geo_to_pixel(self.gt, lon, lat)
-                    pxpy_str = f"{px},{int(py * self.lat_scale)}"
-                    if pxpy_str not in path_parts:
-                        path_parts.append(pxpy_str)
-
-                if len(path_parts) > 1:
-                    d = "M " + " L ".join(path_parts) + " Z"
-                    paths.append(d)
-
-        return paths
+    def get_layer_keys(self, level_ranges: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+        """Get elevation layer keys for this feature using the processor"""
+        return self.processor.get_layer_key(self.feature, level_ranges)
