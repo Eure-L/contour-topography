@@ -35,6 +35,7 @@ def main():
     map.road_scaling = RoadsWeight.RANKING_1
     map.for_cut = True
     map.show_contour_lines = False
+    map.always_stroke_to_paths = False
     map.filtered_water_bodies = [WB.DAM]
     map.size_filtered_water_bodies = [WB.CREEK, WB.POND]
     map.waters_min_size = 30
@@ -44,7 +45,7 @@ def main():
     map.generate_elevation_layers(level_steps=LayerRanges.third_13_3)
 
     # Save its layeres
-    map.save_all_layers(save_path=out_data, combined=combined)
+    map.save_all_layers(save_path=out_data, combined=combined, intermediates=True)
 
 if __name__ == "__main__":
     main()

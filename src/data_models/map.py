@@ -68,8 +68,9 @@ class Map:
         self.road_scaling = RoadsWeight.RANKING_1
         self.canevas = A3
         self.for_cut = False
-        self.combined_grayscale_cut = True
+        self.combined_grayscale_cut = False
         self.always_stroke_to_paths = False
+        self.stack_hint = True
         self.cut_width_mm = DEFAULT_CUT_WIDTH_MM
         self.rotate = DEFAULT_ROTATE_DEGREES
         self.color_palette = DEFAULT_PAELTTE
@@ -93,6 +94,7 @@ class Map:
         self.svg_line_group = self._create_svg_layer(root, "lines", "Lines")
 
         self.svg_tree_layers: Dict[Tuple[int, int], ET.ElementTree] = {}
+
     def _initialize_data_structures(self):
         """Initialize all data structures used by the Map class."""
         self._grayscale_picture: Optional[np.ndarray] = None
@@ -299,8 +301,6 @@ class Map:
 
         return corners
 
-
-
     @property
     def lat_scale(self) -> float:
         """
@@ -386,21 +386,32 @@ class Map:
         min_alt = self.grayscale_picture.min()
         max_alt = self.grayscale_picture.max()
         contours: np.ndarray = self._topo_layers[level_range]
+
         layer_group = self.svg_tree_layers[level_range]
+
+        # Get the layer group below this one
+        sorted_level_ranges = sorted(self.svg_tree_layers.keys())
+        current_index = sorted_level_ranges.index(level_range)
+
+        if current_index > 0:  # If there is a layer below
+            lower_level_range = sorted_level_ranges[current_index - 1]
+            layer_group_below = self.svg_tree_layers[lower_level_range]
+        else:
+            layer_group_below = None
 
         if not self.for_cut:
             r, g, b = altitude_to_rgb(level_range[0], min_alt, max_alt, self.color_palette)
             svg_color = f"rgb({r},{g},{b})"
             stroke_color = svg_color if not self.show_contour_lines else "black"
-            fill = True
+            fill_str = f'{svg_color}'
         else:
             if self.combined_grayscale_cut:
                 gray_value = 0xff - altitude_to_gray(level_range[0], min_alt, max_alt)
                 svg_color = f"rgb({gray_value},{gray_value},{gray_value})"
-                fill = True
+                fill_str = f'{svg_color}'
             else:
                 svg_color = "red"
-                fill = False
+                fill_str = f"white"
             stroke_color = "black" if self.show_contour_lines else svg_color
 
         for contour in contours:
@@ -409,15 +420,26 @@ class Map:
             )
             path_data = scale_path_y(path_data, self.lat_scale)
             path_data += " Z"
-            fill_str = f'{svg_color}' if fill else "none"
 
             new_path = ET.Element("path",
+                                  type="terrain",
                                   stroke=f"{stroke_color}",
                                   fill=f"{fill_str}",
                                   **{"stroke-width": f"{stroke_width_mm}mm"}, d=path_data)
             new_path.tail = "\n    "
-            layer_group.getroot().append(new_path)
-            self.svg_terrain_group.append(new_path)
+
+            if self.stack_hint and layer_group_below:
+                below_path = ET.Element("path",
+                                        type="hint",
+                                        stroke=f"black",
+                                        fill="none",
+                                        opacity="0.3",
+                                        **{"stroke-width": f"{0.4}mm"}, d=path_data)
+                below_path.tail = "\n    "
+                layer_group_below.getroot().append(below_path)
+
+            layer_group.getroot().insert(0,new_path)
+            self.svg_terrain_group.insert(0, new_path)
 
     def _append_roads_to_svg(self, level_range: Tuple[int, int]):
         """
@@ -439,6 +461,7 @@ class Map:
             for d in paths:
                 new_path = ET.Element(
                     "path",
+                    type="road",
                     **{"stroke-width": f"{thickness}mm"},
                     stroke="black",
                     fill="none",
@@ -464,6 +487,7 @@ class Map:
             for d in paths:
                 new_path = ET.Element(
                     "path",
+                    type="line",
                     stroke="black",
                     fill="none",
                     **{"stroke-width": f"{thickness}mm"},
@@ -491,6 +515,7 @@ class Map:
             for d in paths:
                 new_path = ET.Element(
                     "path",
+                    type="water",
                     stroke="none",
                     fill=fill,
                     **{"stroke-width": "0.1mm"},
@@ -563,7 +588,7 @@ class Map:
 
         os.makedirs(save_path, exist_ok=True)
 
-        for level_range, contour in self._topo_layers.items():
+        for level_range, contour in self._topo_layers.items().__reversed__():
             layer_start_time = time.time()
 
             logger.debug(f"Processing level range: {level_range}")  # Add this debug log
@@ -611,8 +636,6 @@ class Map:
             stroke_time = time.time() - stroke_start_time
             logger.info(f"Stroke conversion completed in {stroke_time:.2f} seconds")
             total_time += stroke_time
-
-
 
         if self.rotate != DEFAULT_ROTATE_DEGREES:
             rotate_start_time = time.time()

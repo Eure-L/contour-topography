@@ -40,7 +40,7 @@ def main():
     map.size_filtered_water_bodies = [WB.CREEK, WB.POND]
     map.waters_min_size = 20
     map.rotate = 0
-    map.always_stroke_to_paths = True
+    map.always_stroke_to_paths = False
     map.color_palette = ColorPalettes.BROWN_3
 
     # Compute its layers
