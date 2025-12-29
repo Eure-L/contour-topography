@@ -1,3 +1,4 @@
+import logging
 import os
 import subprocess
 import sys
@@ -6,6 +7,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List
 from xml.etree import ElementTree as ET
+
+logger = logging.getLogger()
 
 
 def convert_strokes_to_paths_for_selectors(input_file: str, select_attrs: List[str]) -> bool:
@@ -26,7 +29,7 @@ def convert_strokes_to_paths_for_selectors(input_file: str, select_attrs: List[s
                        stdout=subprocess.PIPE,
                        stderr=subprocess.PIPE)
 
-        print(f"Running Inkscape 'stroke to path' on {input_file}")
+        logger.info(f"Inkscape 'stroke to path' -> {input_file}")
 
         # Build the actions string for all selectors
         actions = []
@@ -43,7 +46,7 @@ def convert_strokes_to_paths_for_selectors(input_file: str, select_attrs: List[s
             f'--export-filename={input_file}',
             input_file
         ]
-
+        logger.debug(' '.join(cmd))
         result = subprocess.run(cmd,
                                 check=True,
                                 stdout=subprocess.PIPE,
@@ -83,9 +86,10 @@ def parallel_convert_strokes_to_paths(files: List[str], select_attrs: List[str] 
             try:
                 result = future.result()
                 results.append(result)
-                print(f"Thread {threading.get_ident()} finished processing {file}")
+                logger.info(f"Finished 'stroke to path' -> {file}")
+
             except Exception as exc:
-                print(f"Thread {threading.get_ident()} generated an exception for {file}: {exc}")
+                logger.warning(f"Thread {threading.get_ident()} generated an exception for {file}: {exc}")
                 results.append(False)
 
     return results
@@ -126,6 +130,7 @@ def rotate_svg(input_file: str, output_file: str, angle: int) -> bool:
         ]
 
         cmd_str = ' '.join(cmd)
+        logger.debug(cmd_str)
         result = subprocess.run(cmd_str,
                                 check=True,
                                 shell=True,

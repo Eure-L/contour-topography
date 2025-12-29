@@ -34,8 +34,10 @@ DEFAULT_WATER_MIN_SIZE = 500
 DEFAULT_CUT_WIDTH_MM = 1.0
 DEFAULT_ROTATE_DEGREES = 0
 DEFAULT_PAELTTE = ColorPalettes.BROWN_1
+INKSCAPE_NS = "http://www.inkscape.org/namespaces/inkscape"
+ET.register_namespace("inkscape", INKSCAPE_NS)
 
-logger = logging.getLogger('map')
+logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
 
@@ -116,13 +118,25 @@ class Map:
 
         # XML data layers
         self.svg_tree: ET.ElementTree = ET.ElementTree(ET.Element("svg", **self.get_svg_header()))
+        root = self.svg_tree.getroot()
 
-        self.svg_terrain_group = ET.SubElement(self.svg_tree.getroot(), "g", id="terrain")
-        self.svg_road_group = ET.SubElement(self.svg_tree.getroot(), "g", id="roads")
-        self.svg_line_group = ET.SubElement(self.svg_tree.getroot(), "g", id="lines")
-        self.svg_water_group = ET.SubElement(self.svg_tree.getroot(), "g", id="waters")
+        self.svg_terrain_group = self._create_svg_layer(root, "terrain", "Terrain")
+        self.svg_water_group = self._create_svg_layer(root, "waters", "Water")
+        self.svg_road_group = self._create_svg_layer(root, "roads", "Roads")
+        self.svg_line_group = self._create_svg_layer(root, "lines", "Lines")
 
         self.svg_tree_layers: Dict[Tuple[int, int], ET.ElementTree] = {}
+
+    def _create_svg_layer(self, parent, layer_id: str, label: str):
+        return ET.SubElement(
+            parent,
+            "g",
+            {
+                "id": layer_id,
+                f"{{{INKSCAPE_NS}}}label": label,
+                f"{{{INKSCAPE_NS}}}groupmode": "layer",
+            }
+        )
 
     # Property getters and setters
     @property
@@ -282,6 +296,8 @@ class Map:
 
         return corners
 
+
+
     @property
     def lat_scale(self) -> float:
         """
@@ -392,9 +408,11 @@ class Map:
             path_data += " Z"
             fill_str = f'{svg_color}' if fill else "none"
 
-            new_path = ET.Element("path", type="terrain", stroke=f"{stroke_color}", fill=f"{fill_str}",
+            new_path = ET.Element("path",
+                                  stroke=f"{stroke_color}",
+                                  fill=f"{fill_str}",
                                   **{"stroke-width": f"{stroke_width_mm}mm"}, d=path_data)
-
+            new_path.tail = "\n    "
             layer_group.getroot().append(new_path)
             self.svg_terrain_group.append(new_path)
 
@@ -418,7 +436,6 @@ class Map:
             for d in paths:
                 new_path = ET.Element(
                     "path",
-                    type="road",
                     **{"stroke-width": f"{thickness}mm"},
                     stroke="black",
                     fill="none",
@@ -444,7 +461,6 @@ class Map:
             for d in paths:
                 new_path = ET.Element(
                     "path",
-                    type="line",
                     stroke="black",
                     fill="none",
                     **{"stroke-width": f"{thickness}mm"},
@@ -472,7 +488,6 @@ class Map:
             for d in paths:
                 new_path = ET.Element(
                     "path",
-                    type="water",
                     stroke="none",
                     fill=fill,
                     **{"stroke-width": "0.1mm"},

@@ -4,7 +4,9 @@ from defines.road_detail import RoadDetail
 from defines.road_weights import RoadsWeight
 from defines.water_bodies import WaterBodyType as WB
 from src.utils.parser import argv_parser
+from utils.logger import set_logger
 
+logger = set_logger()
 
 def main():
     args = argv_parser()
@@ -34,7 +36,7 @@ def main():
     map.filtered_water_bodies = [WB.DAM]
     map.size_filtered_water_bodies = [WB.CREEK, WB.POND]
     map.waters_min_size = 20
-    map.rotate = 0
+    map.rotate = 270
     map.always_stroke_to_paths = True
 
     # Compute its layers

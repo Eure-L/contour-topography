@@ -152,10 +152,11 @@ def save_svg(et: ElementTree, output_file: str):
     """
     Save the SVG to a file.
 
+    :param et: the element to  write out
     :param output_file: Path to output SVG file
     :return: None
     """
-
+    ET.indent(et, space="  ", level=0)
     # Write to file
     et.write(
         output_file,
