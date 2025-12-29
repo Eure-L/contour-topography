@@ -29,8 +29,6 @@ def convert_strokes_to_paths_for_selectors(input_file: str, select_attrs: List[s
                        stdout=subprocess.PIPE,
                        stderr=subprocess.PIPE)
 
-        logger.info(f"Inkscape 'stroke to path' -> {input_file}")
-
         # Build the actions string for all selectors
         actions = []
         for selector in select_attrs:
@@ -46,6 +44,8 @@ def convert_strokes_to_paths_for_selectors(input_file: str, select_attrs: List[s
             f'--export-filename={input_file}',
             input_file
         ]
+        logger.info(f"Starting Inkscape 'stroke to path' -> {input_file}")
+
         logger.debug(' '.join(cmd))
         result = subprocess.run(cmd,
                                 check=True,
@@ -108,6 +108,8 @@ def rotate_svg(input_file: str, output_file: str, angle: int) -> bool:
         True if rotation was successful, False otherwise
     """
     try:
+        logger.info(f"Starting Inkscape {angle}° rotation -> {input_file}")
+
         # Check if Inkscape is installed
         subprocess.run(['inkscape', '--version'],
                        check=True,
@@ -195,14 +197,15 @@ def rotate_svg(input_file: str, output_file: str, angle: int) -> bool:
         print(f"Error processing SVG: {str(e)}", file=sys.stderr)
         return False
 
-def batch_rotate_svg(files: List[str], output_files: List[str], angle: int) -> List[bool]:
+def batch_rotate_svg(files: List[str], output_files: List[str], angle: int, max_workers: int = 4) -> List[bool]:
     """
-    Rotate multiple SVG files by a specified angle using Inkscape.
+    Rotate multiple SVG files by a specified angle using Inkscape in parallel.
 
     Args:
         files: List of input SVG file paths
         output_files: List of output SVG file paths
         angle: Angle of rotation in degrees (must be a multiple of 90)
+        max_workers: Maximum number of threads to use (default: 4)
 
     Returns:
         List of boolean results for each file rotation
@@ -210,9 +213,22 @@ def batch_rotate_svg(files: List[str], output_files: List[str], angle: int) -> L
     if len(files) != len(output_files):
         raise ValueError("Input and output file lists must have the same length")
 
-    results = []
-    for input_file, output_file in zip(files, output_files):
-        result = rotate_svg(input_file, output_file, angle)
-        results.append(result)
+    results = [None] * len(files)  # Pre-allocate list for results
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_index = {
+            executor.submit(rotate_svg, input_file, output_file, angle): idx
+            for idx, (input_file, output_file) in enumerate(zip(files, output_files))
+        }
+
+        for future in as_completed(future_to_index):
+            idx = future_to_index[future]
+            try:
+                result = future.result()
+                results[idx] = result
+                logger.info(f"Finished rotating {files[idx]} to {output_files[idx]}")
+            except Exception as exc:
+                logger.warning(f"Thread {threading.get_ident()} generated an exception for {files[idx]}: {exc}")
+                results[idx] = False
 
     return results

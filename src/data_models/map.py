@@ -571,22 +571,20 @@ class Map:
                 save_svg(self.svg_tree_layers[level_range], file)
                 saved_layers.append(file)
 
-        # for layer_range, child in self.svg_tree_layers.items():
-        #     self.svg_tree.getroot().extend(child.findall('path'))
-
         if combined:
             combined_file = os.path.join(save_path, f"{self.name}.svg")
             save_svg(self.svg_tree, combined_file)
             saved_layers.append(combined_file)
 
-        # Convert strokes to paths if needed
+        nb_threads = os.cpu_count()
+        logger.info(f"nb threads: {nb_threads}")
+
         if self.always_stroke_to_paths or self.for_cut:
             selectors = ['[type="road"]', '[type="line"]']
-            parallel_convert_strokes_to_paths(saved_layers, selectors, max_workers=12)
+            parallel_convert_strokes_to_paths(saved_layers, selectors, max_workers=nb_threads)
 
-        # Rotate SVGs if needed for CNC machine
         if self.rotate != DEFAULT_ROTATE_DEGREES:
-            batch_rotate_svg(saved_layers, saved_layers, self.rotate)
+            batch_rotate_svg(saved_layers, saved_layers, self.rotate, max_workers=nb_threads)
 
         return saved_layers
 
