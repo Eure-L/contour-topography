@@ -1,11 +1,11 @@
-from typing import TYPE_CHECKING, Tuple, List, Union
+from typing import Tuple, List, Union
 
 import numpy as np
-
 from osgeo.ogr import GeomTransformer
 from shapely import Point, LineString
 from shapely.geometry import shape
 from shapely.geometry.base import BaseGeometry
+
 
 def pixel2coord(gt: GeomTransformer, px: int, py: int) -> Tuple[float, float]:
     """

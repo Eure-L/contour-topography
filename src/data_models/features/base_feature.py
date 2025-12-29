@@ -5,8 +5,8 @@ from osgeo.ogr import GeomTransformer
 from shapely import LineString, Polygon
 from shapely.geometry import shape
 
-from utils.geo import elevation_at, check_coords
 from ..processors.feature_processor import FeatureProcessor
+from ...utils.geo import check_coords
 
 
 class BaseFeature:

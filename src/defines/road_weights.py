@@ -1,4 +1,4 @@
-from data_models.road_weight import RoadWeight
+from ..data_models.road_weight import RoadWeight
 
 
 class RoadsWeight:

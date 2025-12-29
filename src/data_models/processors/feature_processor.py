@@ -5,7 +5,7 @@ import numpy as np
 from osgeo.ogr import GeomTransformer
 from shapely.geometry import shape, LineString, Polygon
 
-from utils.geo import elevation_at
+from ...utils.geo import elevation_at
 
 
 class FeatureProcessor(ABC):

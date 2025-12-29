@@ -1,6 +1,6 @@
 import argparse
 
-from src.defines import defaults
+from ..defines import defaults
 
 
 def argv_parser():

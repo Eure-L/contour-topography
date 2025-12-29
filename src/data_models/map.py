@@ -2,6 +2,7 @@ import json
 import logging
 import math
 import os
+import time
 from typing import Dict, Tuple, Union, List, Optional
 from xml.etree import ElementTree as ET, ElementTree
 
@@ -15,17 +16,17 @@ from shapely.geometry import shape
 from shapely.geometry.multipolygon import MultiPolygon
 from shapely.ops import transform as shp_transform
 
-from data_models.features import RoadFeature, WaterFeature
-from data_models.features.line_feature import LineFeature
-from defines.canvas_sizes import A3
-from defines.color_palettes import ColorPalettes
-from defines.road_detail import RoadDetail
-from defines.road_weights import RoadsWeight
-from defines.water_bodies import WaterBodyType
-from src.utils.colormapping import altitudes_to_rgb_array, altitude_to_rgb
-from utils.colormapping import altitude_to_gray
-from utils.geo import pixel2coord, scale_path_y
-from utils.inkscape import parallel_convert_strokes_to_paths, batch_rotate_svg
+from .features import RoadFeature, WaterFeature
+from .features.line_feature import LineFeature
+from ..defines.canvas_sizes import A3
+from ..defines.color_palettes import ColorPalettes
+from ..defines.road_detail import RoadDetail
+from ..defines.road_weights import RoadsWeight
+from ..defines.water_bodies import WaterBodyType
+from ..utils.colormapping import altitudes_to_rgb_array, altitude_to_rgb
+from ..utils.colormapping import altitude_to_gray
+from ..utils.geo import pixel2coord, scale_path_y
+from ..utils.inkscape import parallel_convert_strokes_to_paths, batch_rotate_svg
 from utils.svg import save_svg
 
 # Constants
@@ -81,6 +82,17 @@ class Map:
         # Initialize data structures
         self._initialize_data_structures()
 
+    def reset_svg_elements(self):
+        """ Initializes SVG rendering elements """
+        self.svg_tree: ET.ElementTree = ET.ElementTree(ET.Element("svg", **self.get_svg_header()))
+        root = self.svg_tree.getroot()
+
+        self.svg_terrain_group = self._create_svg_layer(root, "terrain", "Terrain")
+        self.svg_water_group = self._create_svg_layer(root, "waters", "Water")
+        self.svg_road_group = self._create_svg_layer(root, "roads", "Roads")
+        self.svg_line_group = self._create_svg_layer(root, "lines", "Lines")
+
+        self.svg_tree_layers: Dict[Tuple[int, int], ET.ElementTree] = {}
     def _initialize_data_structures(self):
         """Initialize all data structures used by the Map class."""
         self._grayscale_picture: Optional[np.ndarray] = None
@@ -116,16 +128,7 @@ class Map:
 
         self.done_roads = set()
 
-        # XML data layers
-        self.svg_tree: ET.ElementTree = ET.ElementTree(ET.Element("svg", **self.get_svg_header()))
-        root = self.svg_tree.getroot()
-
-        self.svg_terrain_group = self._create_svg_layer(root, "terrain", "Terrain")
-        self.svg_water_group = self._create_svg_layer(root, "waters", "Water")
-        self.svg_road_group = self._create_svg_layer(root, "roads", "Roads")
-        self.svg_line_group = self._create_svg_layer(root, "lines", "Lines")
-
-        self.svg_tree_layers: Dict[Tuple[int, int], ET.ElementTree] = {}
+        self.reset_svg_elements()
 
     def _create_svg_layer(self, parent, layer_id: str, label: str):
         return ET.SubElement(
@@ -548,6 +551,10 @@ class Map:
         :param intermediates: Whether to save intermediate layers
         :return: None
         """
+        start_time = time.time()
+        layer_times = {}
+        total_time = 0
+
         saved_layers = []
         self.svg_terrain_group.clear()
         self.svg_water_group.clear()
@@ -557,6 +564,8 @@ class Map:
         os.makedirs(save_path, exist_ok=True)
 
         for level_range, contour in self._topo_layers.items():
+            layer_start_time = time.time()
+
             logger.debug(f"Processing level range: {level_range}")  # Add this debug log
 
             start, top = int(level_range[0]), int(level_range[1])
@@ -571,20 +580,48 @@ class Map:
                 save_svg(self.svg_tree_layers[level_range], file)
                 saved_layers.append(file)
 
+            layer_time = time.time() - layer_start_time
+            layer_times[level_range] = layer_time
+            total_time += layer_time
+
+        # Log layer processing times
+        for level_range, layer_time in layer_times.items():
+            logger.debug(f"Layer {level_range} processed in {layer_time:.2f} seconds")
+
         if combined:
+            combined_start_time = time.time()
+
             combined_file = os.path.join(save_path, f"{self.name}.svg")
             save_svg(self.svg_tree, combined_file)
             saved_layers.append(combined_file)
 
+            combined_time = time.time() - combined_start_time
+            logger.info(f"Combined SVG created in {combined_time:.2f} seconds")
+            total_time += combined_time
+
         nb_threads = os.cpu_count()
-        logger.info(f"nb threads: {nb_threads}")
+        logger.debug(f"#Threads: {nb_threads}")
 
         if self.always_stroke_to_paths or self.for_cut:
+            stroke_start_time = time.time()
+
             selectors = ['[type="road"]', '[type="line"]']
             parallel_convert_strokes_to_paths(saved_layers, selectors, max_workers=nb_threads)
 
+            stroke_time = time.time() - stroke_start_time
+            logger.info(f"Stroke conversion completed in {stroke_time:.2f} seconds")
+            total_time += stroke_time
+
+
+
         if self.rotate != DEFAULT_ROTATE_DEGREES:
+            rotate_start_time = time.time()
+
             batch_rotate_svg(saved_layers, saved_layers, self.rotate, max_workers=nb_threads)
+
+            rotate_time = time.time() - rotate_start_time
+            logger.info(f"SVG rotation completed in {rotate_time:.2f} seconds")
+            total_time += rotate_time
 
         return saved_layers
 
@@ -601,7 +638,7 @@ class Map:
             if idx == len(level_steps) - 1:
                 break
 
-            print(f"Processing Level {level_steps[idx]}m")
+            logger.debug(f"Computing contours {level_steps[idx]}m")
             level_range = (level_steps[idx - 1], level_steps[-1])
             self._generate_elevation_contours(level_range)
 

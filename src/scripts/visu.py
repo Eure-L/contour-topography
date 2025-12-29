@@ -1,12 +1,14 @@
-from data_models.map import Map
-from defines.layer_ranges import LayerRanges
-from defines.road_detail import RoadDetail
-from defines.road_weights import RoadsWeight
-from defines.water_bodies import WaterBodyType as WB
-from src.utils.parser import argv_parser
-from utils.logger import set_logger
+import logging
 
-logger = set_logger()
+from ..data_models.map import Map
+from ..defines.layer_ranges import LayerRanges
+from ..defines.road_detail import RoadDetail
+from ..defines.road_weights import RoadsWeight
+from ..defines.water_bodies import WaterBodyType as WB
+from ..utils.parser import argv_parser
+from ..utils.logger import set_logger
+
+logger = set_logger(level=logging.INFO)
 
 def main():
     args = argv_parser()

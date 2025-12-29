@@ -1,9 +1,14 @@
-from data_models.map import Map
-from defines.layer_ranges import LayerRanges
-from defines.road_detail import RoadDetail
-from defines.road_weights import RoadsWeight
-from defines.water_bodies import WaterBodyType as WB
-from src.utils.parser import argv_parser
+import logging
+
+from ..data_models.map import Map
+from ..defines.layer_ranges import LayerRanges
+from ..defines.road_detail import RoadDetail
+from ..defines.road_weights import RoadsWeight
+from ..defines.water_bodies import WaterBodyType as WB
+from ..utils.logger import set_logger
+from ..utils.parser import argv_parser
+
+logger = set_logger(level=logging.INFO)
 
 
 def main():
@@ -36,13 +41,13 @@ def main():
     map.rotate = 0
 
     for level_cfg_name, levels in LayerRanges.top_picks.items():
-        print(level_cfg_name)
         for layer_range_name, layer_range in levels.items():
             name = f"{level_cfg_name}-{layer_range_name}"
-            print(name)
+            logger.info(f"Generating Layer sample: {name} {layer_range}")
+            map.reset_svg_elements()
             map.generate_elevation_layers(level_steps=layer_range)
             map.name = name
-            map.save_all_layers(save_path=out_data, combined=True, remove_inters=True)
+            map.save_all_layers(save_path=out_data, combined=True, intermediates=False)
 
 
 if __name__ == "__main__":

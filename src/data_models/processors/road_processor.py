@@ -3,8 +3,8 @@ from typing import Dict, List, Tuple
 from shapely import LineString
 from shapely.geometry import shape
 
-from data_models.processors.feature_processor import FeatureProcessor
-from utils.geo import geo_to_pixel, elevation_at
+from ...data_models.processors.feature_processor import FeatureProcessor
+from ...utils.geo import geo_to_pixel, elevation_at
 
 
 class RoadFeatureProcessor(FeatureProcessor):

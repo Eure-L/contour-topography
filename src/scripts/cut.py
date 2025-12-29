@@ -1,10 +1,14 @@
-from data_models.map import Map
-from defines.layer_ranges import LayerRanges
-from defines.road_detail import RoadDetail
-from defines.road_weights import RoadsWeight
-from defines.water_bodies import WaterBodyType as WB
-from src.utils.parser import argv_parser
+import logging
 
+from ..data_models.map import Map
+from ..defines.layer_ranges import LayerRanges
+from ..defines.road_detail import RoadDetail
+from ..defines.road_weights import RoadsWeight
+from ..defines.water_bodies import WaterBodyType as WB
+from ..utils.parser import argv_parser
+from ..utils.logger import set_logger
+
+logger = set_logger(level=logging.DEBUG)
 
 def main():
     args = argv_parser()
@@ -27,7 +31,7 @@ def main():
 
     # Configure parameters
     map.cut_width_mm = 1
-    map.road_detail = RoadDetail.HIGH
+    map.road_detail = RoadDetail.ULTRA
     map.road_scaling = RoadsWeight.RANKING_1
     map.for_cut = True
     map.show_contour_lines = False

@@ -1,8 +1,3 @@
-import subprocess
-import sys
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List
 from xml.etree import ElementTree as ET
 
 

@@ -1,4 +1,4 @@
-from data_models.canvas import Canvas
+from ..data_models.canvas import Canvas
 
 # ISO A series sizes
 A1 = Canvas(594, 841)
