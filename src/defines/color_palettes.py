@@ -24,6 +24,14 @@ class ColorPalettes:
                          (0.0, Color("0xce9c69"))]
                         )
 
+    BROWN_3 = ColorStop([(1.0, Color("0xffffff")),
+                         (0.9, Color("0x583101")),
+                         (0.4, Color("0x8b5e34")),
+                         (0.2, Color("0xd4a276")),
+                         (0.0, Color("0xE6D8C3")),
+                         ]
+                        )
+
     BLUE_GREEN = ColorStop([(1.0, Color("0xffffff")),  # White (highest)
                             (0.7, Color("0x00ffff")),  # Cyan
                             (0.4, Color("0x00ff00")),  # Green
