@@ -9,7 +9,7 @@ from ..defines.water_bodies import WaterBodyType as WB
 from ..utils.parser import argv_parser
 from ..utils.logger import set_logger
 
-logger = set_logger(level=logging.INFO)
+logger = set_logger(level=logging.DEBUG)
 
 def main():
     args = argv_parser()

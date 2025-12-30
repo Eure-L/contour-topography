@@ -19,7 +19,7 @@ class FeatureProcessor(ABC):
         self.lon_scale = lon_scale
 
     @abstractmethod
-    def process_feature(self, feature: Dict) -> List[str]:
+    def process_feature(self, feature: Dict) -> List[List[Tuple[int,int]]]:
         """Process a single feature and return SVG paths"""
         pass
 

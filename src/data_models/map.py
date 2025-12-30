@@ -16,6 +16,7 @@ from shapely.geometry import shape
 from shapely.geometry.multipolygon import MultiPolygon
 from shapely.ops import transform as shp_transform
 
+from utils.svg import save_svg
 from .features import RoadFeature, WaterFeature
 from .features.line_feature import LineFeature
 from ..defines.canvas_sizes import A3
@@ -23,11 +24,10 @@ from ..defines.color_palettes import ColorPalettes
 from ..defines.road_detail import RoadDetail
 from ..defines.road_weights import RoadsWeight
 from ..defines.water_bodies import WaterBodyType
-from ..utils.colormapping import altitudes_to_rgb_array, altitude_to_rgb
 from ..utils.colormapping import altitude_to_gray
+from ..utils.colormapping import altitudes_to_rgb_array, altitude_to_rgb
 from ..utils.geo import pixel2coord, scale_path_y
 from ..utils.inkscape import parallel_convert_strokes_to_paths, batch_rotate_svg
-from utils.svg import save_svg
 
 # Constants
 DEFAULT_MIN_CONTOUR_POINTS = 20
@@ -438,7 +438,7 @@ class Map:
                 below_path.tail = "\n    "
                 layer_group_below.getroot().append(below_path)
 
-            layer_group.getroot().insert(0,new_path)
+            layer_group.getroot().insert(0, new_path)
             self.svg_terrain_group.insert(0, new_path)
 
     def _append_roads_to_svg(self, level_range: Tuple[int, int]):
@@ -450,11 +450,10 @@ class Map:
         """
 
         layer_group = self.svg_tree_layers[level_range]
-
         layer_roads = self._road_layers.get(level_range, [])
 
         for road in layer_roads:
-            paths = road.paths
+            paths = road.fmt_paths
             hierarchy = road.hierarchy
             thickness = self.road_scaling.interpolate(hierarchy)
             thickness = round(thickness, 1)
@@ -482,7 +481,7 @@ class Map:
         layer_group = self.svg_tree_layers[level_range]
         layer = self._lf_layers.get(level_range, [])
         for lf in layer:
-            paths = lf.paths
+            paths = lf.fmt_paths
             thickness = 0.8
             for d in paths:
                 new_path = ET.Element(
@@ -511,7 +510,7 @@ class Map:
         fill = "blue" if self.for_cut else "#ADD8E6"
 
         for wb_feat in layer:
-            paths = wb_feat.paths
+            paths = wb_feat.fmt_paths
             for d in paths:
                 new_path = ET.Element(
                     "path",
@@ -715,6 +714,8 @@ class Map:
 
             for level_range in possible_level_ranges:
                 self._road_layers[level_range].append(road_feat)
+
+        # self._optimize_road_layers()
 
     def _compute_lf_layers(self):
         """

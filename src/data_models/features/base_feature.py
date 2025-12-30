@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from typing import List, Dict, Tuple
 
 import numpy as np
@@ -9,13 +10,14 @@ from ..processors.feature_processor import FeatureProcessor
 from ...utils.geo import check_coords
 
 
-class BaseFeature:
+class BaseFeature(ABC):
     """Base class for all GeoJSON features"""
 
-    _paths : List[str] = None
-    _processor : FeatureProcessor = None
+    _fmt_paths: List[str] = None
+    _paths: List[List[Tuple[int,int]]] = None
+    _processor: FeatureProcessor = None
 
-    def __init__(self, geojson_feature: Dict, gt:GeomTransformer, picture: np.ndarray, lat_scale=None, lon_scale=None):
+    def __init__(self, geojson_feature: Dict, gt: GeomTransformer, picture: np.ndarray, lat_scale=None, lon_scale=None):
         self.feature = geojson_feature
         self.picture = picture
         self.gt = gt
@@ -24,18 +26,37 @@ class BaseFeature:
         self.lat_scale = lat_scale
         self.lon_scale = lon_scale
 
+    def update_paths(self):
+        """ Updates paths """
+        self._paths = self.processor.process_feature(self.feature)
+
     @property
-    def paths(self) -> List[str]:
-        """Get road hierarchy level"""
+    def paths(self) -> List[List[Tuple[int,int]]]:
+        """ Sequence of pixel position """
         if self._paths is None:
-            self._paths = self.processor.process_feature(self.feature)
+            self.update_paths()
         return self._paths
+
+    @paths.setter
+    def paths(self, value):
+        current =  self._paths
+        self._paths = value
+
+    @property
+    def fmt_paths(self) -> List[str]:
+        """String formated paths"""
+        if self._fmt_paths is None:
+            self._fmt_paths = self.format_path()
+        return self._fmt_paths
+
+    @abstractmethod
+    def format_path(self):
+        raise NotImplementedError("Subclasses must implement this method")
 
     @property
     def processor(self) -> FeatureProcessor:
         """Get the processor for this feature type"""
         raise NotImplementedError("Subclasses must implement this method")
-
 
     def feature_in_elevation(self, level_range: Tuple[int, int]) -> bool:
         """
