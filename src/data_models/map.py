@@ -834,3 +834,18 @@ class Map:
                     self._water_features.append(feat)
             except Exception as e:
                 logger.error(f"Error loading water features from {source_file}: {str(e)}")
+
+    def get_km_width(self) -> float:
+        """
+        Calculate the scale of the map in kilometers per pixel, accounting for latitude variations.
+
+        Returns:
+            float: The scale in kilometers per pixel
+        """
+        # Get the center latitude of the map
+        center_lat = self.corners["center"][1]
+        km_per_degree = 40075 * math.cos(math.radians(center_lat)) / 360
+        lon_diff = self.east_longitude - self.west_longitude
+        distance_km = lon_diff * km_per_degree
+
+        return distance_km

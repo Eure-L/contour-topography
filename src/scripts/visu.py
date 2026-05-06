@@ -39,16 +39,18 @@ def main():
     map.filtered_water_bodies = [WB.DAM]
     map.size_filtered_water_bodies = [WB.CREEK, WB.POND]
     map.waters_min_size = 20
-    map.rotate = 0
-    map.always_stroke_to_paths = False
+    map.rotate = 270
+    map.always_stroke_to_paths = True
+
     map.color_palette = ColorPalettes.BROWN_3
 
     # Compute its layers
     map.generate_elevation_layers(level_steps=LayerRanges.third_9_3)
 
     # Save its layeres
-    map.save_all_layers(save_path=out_data, combined=combined, intermediates=True)
+    map.save_all_layers(save_path=out_data, combined=True, intermediates=True)
 
+    logger.info(map.get_km_width())
 
 if __name__ == "__main__":
     main()

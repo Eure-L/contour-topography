@@ -39,7 +39,7 @@ def main():
     map.filtered_water_bodies = [WB.DAM]
     map.size_filtered_water_bodies = [WB.CREEK, WB.POND]
     map.waters_min_size = 30
-    map.rotate = 270
+    # map.rotate = 270
 
     # Compute its layers
     map.generate_elevation_layers(level_steps=LayerRanges.third_9_3)

@@ -2,12 +2,46 @@
 This project helps with topography contour rendering. 
 Requires a geotiff file containing altitudes encoded as grayscales to create a parametric object with parametric rendering options.
 
-## Example
+## Process
 
-<img src="doc/canberra.svg" alt="Canberra with roads" style="width:200px;"/>
+### Step 1 - Rendering a preview
+Render a preview of the final result for iterative changes.
+First try is the charm !
+
+<img src="doc/canberra-preview.svg" alt="Canberra with roads" style="width:200px;"/>
+
+### Step 2 - Generating Layers
+The laser machine handles one layer at a time, so we generate each elevation layer file individually.
+Cutting lines are highlighted in red. The rest is grayscale color engraving.
+
+<img src="doc/layers.png" alt="Canberra with roads" style="width:200px;"/>
+
+### Step 3 - Lasering The fun (and slow) part !
+Distant roads will noticeably slow the laser head
+
+<img src="doc/lasering.gif" alt="Canberra with roads" style="width:200px;"/>
+
+### Step 4 - The Oling 
+Protective/devorative wood oil is applied to give each layer a different color gradient for each given elevation.
+Quantity applied by feel. 
+
+<img src="doc/oiling.jpg" alt="Canberra with roads" style="width:200px;"/>
 
 
-## Usages
+### Step 5 - Assembling 
+Each layer is then glued the one below. This step took the most time overall as the glue must dry before starting the next layer (40mins - 1h per layer).
+The wood may buckle due to the oil previously applied, I used heavy object to pin down each layer while the glue dried.
+My Programming books gathering dust on my library have never been so useful.
+
+<img src="doc/assembling.jpg" alt="Canberra with roads" style="width:200px;"/>
+
+### Final Result
+
+
+<img src="doc/final-result.jpg" alt="Canberra with roads" style="width:200px;"/>
+
+
+## Usage
 
 ```python
 from data_models.map import Map
@@ -25,6 +59,16 @@ contour_map.road_scaling = RoadsWeight.RANKING_1
 contour_map.generate_elevation_layers(level_steps=list(range(556, 2000, 100)))
 contour_map.save_all_layers(save_path=dst, combined=True, for_cut=False)
 ```
+
+# Datasets
+The australian government's website https://www.data.gov.au has been a real gold mine.
+- [waterbodies: actmapi-actgov.opendata.arcgis.com](https://actmapi-actgov.opendata.arcgis.com/datasets/0466cc9915e043989cee1952a107e663_0/)
+- [roads: actmapi-actgov.opendata.arcgis.com](https://actmapi-actgov.opendata.arcgis.com/datasets/ACTGOV::actgov-road-centrelines/)
+- [airport: actmapi-actgov.opendata.arcgis.com](https://actmapi-actgov.opendata.arcgis.com/datasets/6e461f9650c84788ab787791eb884c8c_0/)
+
+Also:
+- ACT Borders: https://services1.arcgis.com/E5n4f1VY84i0xSjy/arcgis/rest/services/ACTGOV_BORDER/FeatureServer/replicafilescache/ACTGOV_BORDER_8764495160505726925.geojson
+- AUS Elevation Data: https://ecat.ga.gov.au/geonetwork/srv/api/records/a05f7892-eebe-7506-e044-00144fdd4fa6?language=eng
 
 # Prerequisites
 This project needs GDAL and Inkscape to be installed.
@@ -58,4 +102,4 @@ sudo apt install \
     gdal-bin\
     libgdal-dev
 ```
-Make sure its shared libraries are accessible by the python interpreter.
+Make sure shared libraries are accessible by the python interpreter.

@@ -128,6 +128,7 @@ class ColorPalettes:
             'WHITE': cls.WHITE,
             'BROWN_1': cls.BROWN_1,
             'BROWN_2': cls.BROWN_2,
+            'BROWN_3': cls.BROWN_3,
             'BLUE_GREEN': cls.BLUE_GREEN,
             'RED_YELLOW': cls.RED_YELLOW,
             'PURPLE_ORANGE': cls.PURPLE_ORANGE,
@@ -140,6 +141,129 @@ class ColorPalettes:
             'SUNSET_THEME': cls.SUNSET_THEME,
             'MOONLIGHT_THEME': cls.MOONLIGHT_THEME,
             'EARTH_THEME': cls.EARTH_THEME
+        }
+    # Reversed GRAYSCALE_WHITE_TO_BLACK_LIGHT palette
+    # Reversed GRAYSCALE_WHITE_TO_BLACK_LIGHT palette
+    GRAYSCALE_WHITE_TO_BLACK_LIGHT = ColorStop([(0.0, Color("0xffffff")),  # White (highest)
+                                              (1-0.8, Color("0xf0f0f0")),  # Very light gray
+                                              (1-0.6, Color("0xd0d0d0")),  # Light gray
+                                              (1-0.4, Color("0xa0a0a0")),  # Medium gray
+                                              (1-0.2, Color("0x707070")),  # Dark gray
+                                              (1-0.0, Color("0x000000"))]  # Black (lowest)
+                                             )
+
+    # Reversed GRAYSCALE_WHITE_TO_BLACK_MEDIUM palette
+    GRAYSCALE_WHITE_TO_BLACK_MEDIUM = ColorStop([(0.0, Color("0xffffff")),  # White (highest)
+                                                (1-0.75, Color("0xe0e0e0")),  # Light gray
+                                                (1-0.5, Color("0xb0b0b0")),  # Medium gray
+                                                (1-0.25, Color("0x505050")),  # Dark gray
+                                                (1-0.0, Color("0x000000"))]  # Black (lowest)
+                                               )
+
+    # Reversed GRAYSCALE_WHITE_TO_BLACK_DARK palette
+    GRAYSCALE_WHITE_TO_BLACK_DARK = ColorStop([(0.0, Color("0xffffff")),  # White (highest)
+                                              (1-0.7, Color("0xd0d0d0")),  # Light gray
+                                              (1-0.4, Color("0x707070")),  # Dark gray
+                                              (1-0.0, Color("0x000000"))]  # Black (lowest)
+                                             )
+
+    # Reversed GRAYSCALE_WHITE_TO_BLACK_SOFT palette
+    GRAYSCALE_WHITE_TO_BLACK_SOFT = ColorStop([(0.0, Color("0xffffff")),  # White (highest)
+                                             (1-0.8, Color("0xf5f5f5")),  # Off-white
+                                             (1-0.6, Color("0xe0e0e0")),  # Light gray
+                                             (1-0.4, Color("0xc0c0c0")),  # Silver
+                                             (1-0.2, Color("0x808080")),  # Gray
+                                             (1-0.0, Color("0x000000"))]  # Black (lowest)
+                                            )
+
+    # Reversed GRAYSCALE_WHITE_TO_BLACK_HARD palette
+    GRAYSCALE_WHITE_TO_BLACK_HARD = ColorStop([(0.0, Color("0xffffff")),  # White (highest)
+                                              (1-0.9, Color("0xf0f0f0")),  # Very light gray
+                                              (1-0.7, Color("0xb0b0b0")),  # Medium gray
+                                              (1-0.4, Color("0x505050")),  # Dark gray
+                                              (1-0.0, Color("0x000000"))]  # Black (lowest)
+                                             )
+
+    # Reversed GRAYSCALE_WHITE_TO_BLACK_CONTRAST palette
+    GRAYSCALE_WHITE_TO_BLACK_CONTRAST = ColorStop([(0.0, Color("0xffffff")),  # White (highest)
+                                                  (1-0.9, Color("0xe0e0e0")),  # Light gray
+                                                  (1-0.7, Color("0x808080")),  # Gray
+                                                  (1-0.4, Color("0x303030")),  # Dark gray
+                                                  (1-0.0, Color("0x000000"))]  # Black (lowest)
+                                                 )
+
+    # Reversed GRAYSCALE_WHITE_TO_BLACK_PASTEL palette
+    GRAYSCALE_WHITE_TO_BLACK_PASTEL = ColorStop([(0.0, Color("0xffffff")),  # White (highest)
+                                                (1-0.8, Color("0xf0f0f0")),  # Very light gray
+                                                (1-0.6, Color("0xd0d0d0")),  # Light gray
+                                                (1-0.4, Color("0xa0a0a0")),  # Medium gray
+                                                (1-0.2, Color("0x707070")),  # Dark gray
+                                                (1-0.0, Color("0x000000"))]  # Black (lowest)
+                                               )
+
+    # Reversed GRAYSCALE_WHITE_TO_BLACK_METALLIC palette
+    GRAYSCALE_WHITE_TO_BLACK_METALLIC = ColorStop([(0.0, Color("0xffffff")),  # White (highest)
+                                                  (1-0.8, Color("0xe0e0e0")),  # Light gray
+                                                  (1-0.6, Color("0xc0c0c0")),  # Silver
+                                                  (1-0.4, Color("0x808080")),  # Gray
+                                                  (1-0.2, Color("0x404040")),  # Dark gray
+                                                  (1-0.0, Color("0x000000"))]  # Black (lowest)
+                                                 )
+
+    # Reversed GRAYSCALE_WHITE_TO_BLACK_NEUTRAL palette
+    GRAYSCALE_WHITE_TO_BLACK_NEUTRAL = ColorStop([(0.0, Color("0xffffff")),  # White (highest)
+                                                 (1-0.75, Color("0xf0f0f0")),  # Very light gray
+                                                 (1-0.5, Color("0xc0c0c0")),  # Silver
+                                                 (1-0.25, Color("0x606060")),  # Dark gray
+                                                 (1-0.0, Color("0x000000"))]  # Black (lowest)
+                                                )
+
+    # Reversed GRAYSCALE_WHITE_TO_BLACK_SUBTLE palette
+    GRAYSCALE_WHITE_TO_BLACK_SUBTLE = ColorStop([(1-1.0, Color("0xffffff")),  # White (highest)
+                                                (1-0.8, Color("0xf5f5f5")),  # Off-white
+                                                (1-0.6, Color("0xe0e0e0")),  # Light gray
+                                                (1-0.4, Color("0xc0c0c0")),  # Silver
+                                                (1-0.2, Color("0x808080")),  # Gray
+                                                (1-0.0, Color("0x000000"))]  # Black (lowest)
+                                               )
+
+    # Reversed GRAYSCALE_WHITE_TO_BLACK_DEEP palette
+    GRAYSCALE_WHITE_TO_BLACK_DEEP = ColorStop([(0.0, Color("0xffffff")),  # White (highest)
+                                             (1-0.7, Color("0xe0e0e0")),  # Light gray
+                                             (1-0.4, Color("0x707070")),  # Dark gray
+                                             (1-0.0, Color("0x000000"))]  # Black (lowest)
+                                            )
+
+    # Reversed GRAYSCALE_WHITE_TO_BLACK_VIBRANT palette
+    GRAYSCALE_WHITE_TO_BLACK_VIBRANT = ColorStop([(0.0, Color("0xffffff")),  # White (highest)
+                                                 (1-0.8, Color("0xf0f0f0")),  # Very light gray
+                                                 (1-0.6, Color("0xd0d0d0")),  # Light gray
+                                                 (1-0.4, Color("0xa0a0a0")),  # Medium gray
+                                                 (1-0.2, Color("0x707070")),  # Dark gray
+                                                 (1-0.0, Color("0x000000"))]  # Black (lowest)
+                                                )
+
+    @classmethod
+    def get_all_white_to_black_palettes(cls):
+        """
+        Returns a dictionary mapping white-to-black palette names to their ColorStop objects.
+
+        Returns:
+            dict: Mapping of white-to-black palette names to ColorStop objects
+        """
+        return {
+            'GRAYSCALE_WHITE_TO_BLACK_LIGHT': cls.GRAYSCALE_WHITE_TO_BLACK_LIGHT,
+            'GRAYSCALE_WHITE_TO_BLACK_MEDIUM': cls.GRAYSCALE_WHITE_TO_BLACK_MEDIUM,
+            'GRAYSCALE_WHITE_TO_BLACK_DARK': cls.GRAYSCALE_WHITE_TO_BLACK_DARK,
+            'GRAYSCALE_WHITE_TO_BLACK_SOFT': cls.GRAYSCALE_WHITE_TO_BLACK_SOFT,
+            'GRAYSCALE_WHITE_TO_BLACK_HARD': cls.GRAYSCALE_WHITE_TO_BLACK_HARD,
+            'GRAYSCALE_WHITE_TO_BLACK_CONTRAST': cls.GRAYSCALE_WHITE_TO_BLACK_CONTRAST,
+            'GRAYSCALE_WHITE_TO_BLACK_PASTEL': cls.GRAYSCALE_WHITE_TO_BLACK_PASTEL,
+            'GRAYSCALE_WHITE_TO_BLACK_METALLIC': cls.GRAYSCALE_WHITE_TO_BLACK_METALLIC,
+            'GRAYSCALE_WHITE_TO_BLACK_NEUTRAL': cls.GRAYSCALE_WHITE_TO_BLACK_NEUTRAL,
+            'GRAYSCALE_WHITE_TO_BLACK_SUBTLE': cls.GRAYSCALE_WHITE_TO_BLACK_SUBTLE,
+            'GRAYSCALE_WHITE_TO_BLACK_DEEP': cls.GRAYSCALE_WHITE_TO_BLACK_DEEP,
+            'GRAYSCALE_WHITE_TO_BLACK_VIBRANT': cls.GRAYSCALE_WHITE_TO_BLACK_VIBRANT
         }
 
 # For backward compatibility
