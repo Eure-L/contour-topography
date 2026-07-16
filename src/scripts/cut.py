@@ -1,7 +1,7 @@
 import logging
 
 from ..data_models.map import Map
-from ..defines.layer_ranges import LayerRanges
+from ..defines.layer_ranges import CanberraLayerRanges
 from ..defines.road_detail import RoadDetail
 from ..defines.road_weights import RoadsWeight
 from ..defines.water_bodies import WaterBodyType as WB
@@ -31,7 +31,7 @@ def main():
 
     # Configure parameters
     map.cut_width_mm = 1
-    map.road_detail = RoadDetail.MEDIUM
+    map.road_detail = RoadDetail.ULTRA
     map.road_scaling = RoadsWeight.RANKING_1
     map.for_cut = True
     map.show_contour_lines = False
@@ -39,10 +39,10 @@ def main():
     map.filtered_water_bodies = [WB.DAM]
     map.size_filtered_water_bodies = [WB.CREEK, WB.POND]
     map.waters_min_size = 30
-    # map.rotate = 270
+    map.rotate = 270
 
     # Compute its layers
-    map.generate_elevation_layers(level_steps=LayerRanges.third_9_3)
+    map.generate_elevation_layers(level_steps=CanberraLayerRanges.third_9_3)
 
     # Save its layeres
     map.save_all_layers(save_path=out_data, combined=combined, intermediates=True)

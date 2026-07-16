@@ -1,5 +1,6 @@
 import logging
 
+from defines.layer_ranges import SydneyLayerRanges
 from ..defines.color_palettes import ColorPalettes
 from ..data_models.map import Map
 from ..defines.layer_ranges import CanberraLayerRanges
@@ -36,7 +37,7 @@ def main():
 
     # Configure parameters
     map.cut_width_mm = 0.5
-    map.road_detail = RoadDetail.ULTRA
+    map.road_detail = RoadDetail.LOW
     map.road_scaling = RoadsWeight.RANKING_1
     map.for_cut = False
     map.show_contour_lines = False
@@ -46,13 +47,13 @@ def main():
     # map.rotate = 270
     map.always_stroke_to_paths = True
 
-    map.color_palette = ColorPalettes.BROWN_3
+    map.color_palette = ColorPalettes.BROWN_4
 
     # Compute its layers
-    map.generate_elevation_layers(level_steps=CanberraLayerRanges.third_9_3)
+    map.generate_elevation_layers(level_steps=SydneyLayerRanges._12_layers)
 
     # Save its layeres
-    map.save_all_layers(save_path=out_data, combined=True, intermediates=True)
+    map.save_all_layers(save_path=out_data, combined=True, intermediates=False)
 
     logger.info(map.get_km_width())
 

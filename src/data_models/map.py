@@ -3,6 +3,7 @@ import logging
 import math
 import os
 import time
+import traceback
 from typing import Dict, Tuple, Union, List, Optional
 from xml.etree import ElementTree as ET, ElementTree
 
@@ -549,10 +550,17 @@ class Map:
         # Apply latitude scale
         y = y * self.lat_scale
 
-        multipoly = MultiPolygon(self.borders_polygons)
-        inside = vectorized.contains(multipoly, x, y)
+        combined_inside = np.zeros_like(x, dtype=bool)
+        if isinstance(self.borders_polygons, list) and len(self.borders_polygons) > 1:
+            for border_poly in self.borders_polygons:
+                multipoly = MultiPolygon(border_poly)
+                inside = vectorized.contains(multipoly, x, y)
+                combined_inside |= inside
+        else:
+            multipoly = MultiPolygon(self.borders_polygons)
+            combined_inside = vectorized.contains(multipoly, x, y)
 
-        return (inside.astype(np.uint8) * 255)
+        return (combined_inside.astype(np.uint8) * 255)
 
     def get_svg_header(self):
         height, width = self.grayscale_picture.shape
@@ -592,7 +600,7 @@ class Map:
 
             logger.debug(f"Processing level range: {level_range}")  # Add this debug log
 
-            start, top = int(level_range[0]), int(level_range[1])
+            start, top = float(level_range[0]), float(level_range[1])
 
             self._append_layer_to_svg(level_range)
             self._append_roads_to_svg(level_range)
@@ -777,13 +785,21 @@ class Map:
         for source_file in self._road_sources:
             try:
                 with open(source_file, 'r') as f:
-                    geojson = json.load(f)
+                    geojson: Dict = json.load(f)
+
+                # The Road features object may not at the root of the JSON dictionary
+                if 'features' not in geojson:
+                    for k, v in geojson.items():
+                        if isinstance(v, dict) and 'features' in v.keys():
+                            geojson = v
+                            break
 
                 for feature in geojson['features']:
                     road = RoadFeature(feature, self.gt, self.grayscale_picture,
                                        lat_scale=self.lat_scale, lon_scale=1)
                     self._road_features.append(road)
             except Exception as e:
+                logger.error(f"{traceback.format_exception(e)}")
                 logger.error(f"Error loading road features from {source_file}: {str(e)}")
 
     def _load_line_features(self) -> None:

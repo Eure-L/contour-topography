@@ -62,9 +62,11 @@ contour_map.save_all_layers(save_path=dst, combined=True, for_cut=False)
 
 # Datasets
 The australian government's website https://www.data.gov.au has been a real gold mine.
-- [waterbodies: actmapi-actgov.opendata.arcgis.com](https://actmapi-actgov.opendata.arcgis.com/datasets/0466cc9915e043989cee1952a107e663_0/)
-- [roads: actmapi-actgov.opendata.arcgis.com](https://actmapi-actgov.opendata.arcgis.com/datasets/ACTGOV::actgov-road-centrelines/)
-- [airport: actmapi-actgov.opendata.arcgis.com](https://actmapi-actgov.opendata.arcgis.com/datasets/6e461f9650c84788ab787791eb884c8c_0/)
+- [ACT waterbodies: actmapi-actgov.opendata.arcgis.com](https://actmapi-actgov.opendata.arcgis.com/datasets/0466cc9915e043989cee1952a107e663_0/)
+- [ACT roads: actmapi-actgov.opendata.arcgis.com](https://actmapi-actgov.opendata.arcgis.com/datasets/ACTGOV::actgov-road-centrelines/)
+- [ACT airport: actmapi-actgov.opendata.arcgis.com](https://actmapi-actgov.opendata.arcgis.com/datasets/6e461f9650c84788ab787791eb884c8c_0/)
+- [Sydney roads: portal.spatial.nsw.gov.au](https://portal.spatial.nsw.gov.au/client/services?id=d6cba899a13041d2a8c0eb4ca734b69e)
+- [Sydney borders: citydata.ada.unsw.edu.au](https://citydata.ada.unsw.edu.au/dataset/lgas_sydney_and_surrounds/resource/e66a0534-450f-4386-890d-2daed56f0086)
 
 Also:
 - ACT Borders: https://services1.arcgis.com/E5n4f1VY84i0xSjy/arcgis/rest/services/ACTGOV_BORDER/FeatureServer/replicafilescache/ACTGOV_BORDER_8764495160505726925.geojson
@@ -103,3 +105,30 @@ sudo apt install \
     libgdal-dev
 ```
 Make sure shared libraries are accessible by the python interpreter.
+
+
+# Coordinates:
+
+**Canberra**
+```bash
+Upper Left  ( 148.7548611, -35.1195833) (148d45'17.50"E, 35d 7'10.50"S)
+Lower Left  ( 148.7548611, -35.9251389) (148d45'17.50"E, 35d55'30.50"S)
+Upper Right ( 149.4170833, -35.1195833) (149d25' 1.50"E, 35d 7'10.50"S)
+Lower Right ( 149.4170833, -35.9251389) (149d25' 1.50"E, 35d55'30.50"S)
+Center      ( 149.0859722, -35.5223611) (149d 5' 9.50"E, 35d31'20.50"S)
+```
+
+**Sydney**
+```bash
+150.58 -33.5
+150.58 -34.22
+151.5 -33.5
+151.35 -34.22
+```
+
+```bash
+150.9 -33.65
+150.9 -33.99
+151.5 -33.5
+151.35 -34.22
+```

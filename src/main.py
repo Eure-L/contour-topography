@@ -2,7 +2,7 @@ import os.path
 from argparse import ArgumentError
 
 from data_models.map import Map
-from defines.layer_ranges import LayerRanges
+from defines.layer_ranges import CanberraLayerRanges
 from defines.road_detail import RoadDetail
 from defines.water_bodies import WaterBodyType as WB
 from src.utils.parser import argv_parser
@@ -24,7 +24,7 @@ def main():
     if not os.path.exists(out_data):
         os.makedirs(out_data)
     try:
-        steps = LayerRanges.linear_15 if not level_steps else [int(step) for step in level_steps.split(';')]
+        steps = CanberraLayerRanges.linear_15 if not level_steps else [int(step) for step in level_steps.split(';')]
     except Exception as e:
         raise ArgumentError(
             "Could not parse Steps list, must be a list of integers separated by ';'.\nExample: 0;50;150;1000;1500 ")
@@ -43,7 +43,7 @@ def main():
     map.waters_min_size = 250
 
     # Compute its layers
-    map.generate_elevation_layers(level_steps=LayerRanges.third_13_bis)
+    map.generate_elevation_layers(level_steps=CanberraLayerRanges.third_13_bis)
 
     # Save its layeres
     map.save_all_layers(save_path=out_data, combined=combined)

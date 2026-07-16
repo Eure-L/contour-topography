@@ -32,6 +32,13 @@ class ColorPalettes:
                          ]
                         )
 
+    BROWN_4 = ColorStop([(1.0, Color("0xffffff")),
+                         (0.9, Color("0x583101")),
+                         (0.4, Color("0x8b5e34")),
+                         (0.1, Color("0xd4a276")),
+                         (0.0, Color("0xadd8e6"))]
+    )
+
     BLUE_GREEN = ColorStop([(1.0, Color("0xffffff")),  # White (highest)
                             (0.7, Color("0x00ffff")),  # Cyan
                             (0.4, Color("0x00ff00")),  # Green
@@ -58,6 +65,15 @@ class ColorPalettes:
                            (0.4, Color("0x808080")),  # Gray
                            (0.1, Color("0x404040")),  # Dark gray
                            (0.0, Color("0x000000"))]  # Black (lowest)
+                          )
+
+    GRAYSCALE_2 = ColorStop([(1.0, Color("0xffffff")),  # White (highest)
+                           (0.7, Color("0xc0c0c0")),  # Silver
+                           (0.4, Color("0x808080")),  # Gray
+                           (0.1, Color("0x404040")),  # Dark gray
+                           (0.0, Color("0x202020")),
+                           (-1, Color("0x000000"))
+                             ]  # Black (lowest)
                           )
 
     OCEAN_THEME = ColorStop([(1.0, Color("0xffffff")),  # White (highest)

@@ -1,7 +1,7 @@
 import logging
 
 from ..data_models.map import Map
-from ..defines.layer_ranges import LayerRanges
+from ..defines.layer_ranges import CanberraLayerRanges
 from ..defines.road_detail import RoadDetail
 from ..defines.road_weights import RoadsWeight
 from ..defines.water_bodies import WaterBodyType as WB
@@ -40,7 +40,7 @@ def main():
     map.waters_min_size = 20
     map.rotate = 0
 
-    for level_cfg_name, levels in LayerRanges.top_picks.items():
+    for level_cfg_name, levels in CanberraLayerRanges.top_picks.items():
         for layer_range_name, layer_range in levels.items():
             name = f"{level_cfg_name}-{layer_range_name}"
             logger.info(f"Generating Layer sample: {name} {layer_range}")

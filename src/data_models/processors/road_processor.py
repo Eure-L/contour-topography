@@ -33,7 +33,16 @@ class RoadFeatureProcessor(FeatureProcessor):
             px_prev, py_prev = 0, 0
             path_vector = PathVector(0, 0)
 
-            for lon, lat in path:
+            for point in path:
+                if len(point) == 2:
+                    lon, lat = point
+                    alt = None
+                elif len(point) == 3:
+                    lon, lat, alt = point
+                else:
+                    logger.warning(f"Unexpected point format: {point}")
+                    continue
+
                 path_vector_prev = path_vector
                 px, py = geo_to_pixel(self.gt, lon, lat)
                 py = int(py * self.lat_scale)

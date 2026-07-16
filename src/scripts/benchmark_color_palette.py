@@ -4,7 +4,7 @@ import os.path
 from ..defines.road_detail import RoadDetail
 from ..defines.color_palettes import ColorPalettes
 from ..data_models.map import Map
-from ..defines.layer_ranges import LayerRanges
+from ..defines.layer_ranges import CanberraLayerRanges
 from ..defines.road_weights import RoadsWeight
 from ..utils.logger import set_logger
 from ..utils.parser import argv_parser
@@ -30,7 +30,7 @@ def main():
     if not os.path.exists(out_data):
         os.makedirs(out_data)
 
-    steps = LayerRanges.third_13_3
+    steps = CanberraLayerRanges.third_13_3
 
     map.road_detail = RoadDetail.ULTRA
     map.road_scaling = RoadsWeight.RANKING_1

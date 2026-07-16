@@ -1,3 +1,4 @@
+import logging
 from typing import Tuple, List, Union
 
 import numpy as np
@@ -6,6 +7,7 @@ from shapely import Point, LineString
 from shapely.geometry import shape
 from shapely.geometry.base import BaseGeometry
 
+logger = logging.getLogger()
 
 def pixel2coord(gt: GeomTransformer, px: int, py: int) -> Tuple[float, float]:
     """
@@ -111,7 +113,7 @@ def elevation_at(gt: GeomTransformer, picture: np.ndarray, lon: float, lat: floa
     """
     px, py = geo_to_pixel(gt, lon, lat)
     width, height = picture.shape
-    if 0 <= px < width and 0 <= py < height:
+    if 0 <= px < height and 0 <= py < width:
         return float(picture[py, px])
 
     return None
